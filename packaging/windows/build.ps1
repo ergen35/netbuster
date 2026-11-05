@@ -14,6 +14,7 @@ $folder = Join-Path dist $name
 if (Test-Path $folder) { Remove-Item -Recurse -Force $folder }
 New-Item -ItemType Directory -Path $folder | Out-Null
 Copy-Item target\release\netbuster.exe $folder
+Copy-Item LICENSE $folder
 Compress-Archive -Force -Path $folder -DestinationPath "dist\$name.zip"
 Remove-Item -Recurse -Force $folder
 

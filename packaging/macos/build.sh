@@ -22,6 +22,7 @@ lipo -create -output "$APP/Contents/MacOS/netbuster" \
     "$TARGET_DIR/x86_64-apple-darwin/release/netbuster"
 sed "s/@VERSION@/$VERSION/g" packaging/macos/Info.plist > "$APP/Contents/Info.plist"
 cp assets/macos/netbuster.icns "$APP/Contents/Resources/netbuster.icns"
+cp LICENSE "$APP/Contents/Resources/LICENSE"
 # Signature locale, sans compte développeur : macOS demandera une confirmation au premier lancement.
 codesign --force --deep --sign - "$APP"
 

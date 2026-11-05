@@ -27,6 +27,7 @@ ARCHIVE_NAME="netbuster-$VERSION-linux-$(uname -m)"
 ARCHIVE="$WORK/$ARCHIVE_NAME"
 mkdir -p "$ARCHIVE"
 install -m 0755 "$BIN" "$ARCHIVE/netbuster"
+install -m 0644 LICENSE "$ARCHIVE/LICENSE"
 cat > "$ARCHIVE/LISEZMOI.txt" <<TXT
 NetBuster $VERSION pour Linux
 
@@ -51,16 +52,19 @@ for s in 16 22 24 32 48 64 128 256 512; do
     mkdir -p "$d"
     install -m 0644 "assets/icons/netbuster-$s.png" "$d/netbuster.png"
 done
-cat > "$PKG/usr/share/doc/netbuster/copyright" <<TXT
+{
+    cat <<TXT
 Format: https://www.debian.org/doc/packaging-manuals/copyright-format/1.0/
 Upstream-Name: NetBuster
 Source: https://github.com/ergen35/netbuster
 
 Files: *
-Copyright: Serge Eric Hotegni
-License: Tous-droits-reserves
- Aucune licence libre n'a encore été choisie pour ce projet.
+Copyright: 2026 Serge Eric Hotegni
+License: Expat
 TXT
+    # Le texte de LICENSE, mis en forme comme l'exige Debian (ligne vide = « . »).
+    tail -n +3 LICENSE | sed -e 's/^$/./' -e 's/^/ /'
+} > "$PKG/usr/share/doc/netbuster/copyright"
 
 # La version de la bibliothèque C vient de ce que le binaire demande réellement.
 SHLIB_DIR="$WORK/shlibs"

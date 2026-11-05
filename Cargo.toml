@@ -5,6 +5,7 @@ edition = "2021"
 rust-version = "1.95"
 description = "NetBuster : surveillance et gestion du réseau du PC, en temps réel"
 authors = ["Serge Eric Hotegni"]
+license = "MIT"
 repository = "https://github.com/ergen35/netbuster"
 build = "build.rs"
 

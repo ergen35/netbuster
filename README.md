@@ -44,6 +44,11 @@ l'onglet Actions. Une étiquette commençant par `v` (par exemple `v0.1.0`) les 
 Pour changer de version, modifiez `version` dans `Cargo.toml`, puis celle de `assets/make_platform_icons.py`,
 et refaites `assets/windows/netbuster.res` comme indiqué en tête de ce script.
 
+## Licence
+
+[MIT](LICENSE) : vous pouvez utiliser, copier, modifier et redistribuer NetBuster librement, à condition de
+conserver la mention de copyright et le texte de la licence.
+
 ## Crédits
 
 Créé par Serge Eric Hotegni : https://github.com/ergen35. Projet : https://github.com/ergen35/netbuster
