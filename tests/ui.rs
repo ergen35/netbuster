@@ -13,13 +13,34 @@ use std::sync::atomic::Ordering;
 use std::time::{Duration, Instant};
 
 fn setup(name: &str) -> (Harness<'static, App>, PathBuf) {
+    setup_as(name, [192, 168, 43, 242])
+}
+
+/// L'adresse IPv4 de cette machine, celle que NetBuster reconnaît comme « locale ».
+/// Aucun paquet n'est envoyé : on demande seulement au système par où il sortirait.
+fn my_ipv4() -> [u8; 4] {
+    std::net::UdpSocket::bind("0.0.0.0:0")
+        .and_then(|s| {
+            s.connect("192.0.2.1:9")?;
+            s.local_addr()
+        })
+        .ok()
+        .and_then(|a| match a.ip() {
+            std::net::IpAddr::V4(v) => Some(v.octets()),
+            _ => None,
+        })
+        .unwrap_or([127, 0, 0, 1])
+}
+
+/// Comme `setup`, avec l'adresse que les paquets simulés donnent à cette machine.
+fn setup_as(name: &str, me: [u8; 4]) -> (Harness<'static, App>, PathBuf) {
     let dir = std::env::temp_dir().join(format!("netbuster-ui-{}-{name}", std::process::id()));
     let _ = std::fs::remove_dir_all(&dir);
     std::fs::create_dir_all(&dir).unwrap();
     // Rien n'est écrit dans le dossier personnel pendant les tests.
     unsafe { std::env::set_var("XDG_DATA_HOME", dir.join("data")) };
     unsafe { std::env::set_var("XDG_CONFIG_HOME", std::env::temp_dir().join(format!("netbuster-ui-{}-config", std::process::id()))) };
-    netbuster::mockkit::write_mock(&dir, [192, 168, 43, 242], 2);
+    netbuster::mockkit::write_mock(&dir, me, 2);
     let admin = Admin::with_command(vec![env!("CARGO_BIN_EXE_netbuster").to_string(), "--helper".into(), "--mock".into(), dir.to_string_lossy().into_owned()]);
     // Le service de ce dossier, jamais celui du PC : s'il est actif, ses vrais paquets fausseraient tout.
     let app = App::new(Shared::start_with_paths(admin, ServicePaths::under(&dir)));
@@ -464,7 +485,8 @@ fn orders_from_the_tray_reach_the_window() {
 
 #[test]
 fn capture_runs_and_packets_are_understood() {
-    let (mut h, _d) = setup("capture");
+    // Les paquets simulés viennent de l'adresse réelle de la machine : sinon le modèle ne les rattache à aucune connexion.
+    let (mut h, _d) = setup_as("capture", my_ipv4());
     h.get_by_role_and_label(egui::Role::Button, "Paquets").click();
     steps(&mut h, 2);
     go_admin(&mut h);
