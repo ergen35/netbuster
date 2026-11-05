@@ -478,7 +478,9 @@ fn capture_runs_and_packets_are_understood() {
         assert!(m.packets.iter().any(|r| r.pkt.app == "DNS"));
         assert!(m.packets.iter().any(|r| r.pkt.app == "QUIC"));
         assert!(m.packets.iter().any(|r| r.pkt.app == "SSH"));
-        assert!(m.packets.iter().all(|r| &*r.iface == "wlo1"));
+        // Le nom de l'interface vient de la machine qui exécute le test (l'index 2 n'est pas « wlo1 » partout).
+        let expected: std::sync::Arc<str> = m.ifindex.get(&2).cloned().unwrap_or_else(|| "if2".into());
+        assert!(m.packets.iter().all(|r| r.iface == expected));
         // La conversation HTTP en clair est reconstituée.
         assert!(m.streams.values().any(|s| s.chunks.iter().any(|c| String::from_utf8_lossy(&c.data).contains("Bonjour"))));
         // La connexion est nommée grâce à la réponse DNS capturée.
