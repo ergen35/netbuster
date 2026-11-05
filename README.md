@@ -11,9 +11,28 @@ Surveillance et gestion du réseau du PC, en temps réel.
 | Windows 10 et 11 | `netbuster-<version>-windows-x64-setup.exe` | Lancer l'installateur. Sans droits administrateur. Une version `.zip` portable existe aussi. |
 | macOS 11 et plus | `netbuster-<version>-macos-universal.dmg` | Glisser NetBuster dans Applications. |
 
-Les fichiers ne sont pas signés par un éditeur reconnu. Windows peut afficher « Windows a protégé votre
-ordinateur » (Informations complémentaires, puis Exécuter quand même). macOS demande un clic droit sur
-l'application, puis Ouvrir, au premier lancement.
+### Avertissement au premier lancement
+
+Les fichiers ne sont pas (encore) signés par un éditeur reconnu : le système l'affiche, ce n'est pas un défaut
+du programme.
+
+- **Windows** affiche « Windows a protégé votre ordinateur » : cliquez sur *Informations complémentaires*, puis
+  *Exécuter quand même*.
+- **macOS** refuse d'abord d'ouvrir l'application. Deux façons de continuer :
+  - Faites un clic droit sur NetBuster, puis *Ouvrir*. Sur les versions récentes de macOS, ce clic droit ne
+    suffit pas toujours : ouvrez alors *Réglages Système > Confidentialité et sécurité*, descendez jusqu'à
+    la section *Sécurité* et cliquez sur *Ouvrir quand même*.
+  - Ou, dans le Terminal, retirez la quarantaine une fois pour toutes :
+    `xattr -dr com.apple.quarantine /Applications/NetBuster.app`
+
+### Vérifier le téléchargement
+
+Chaque version publie un fichier `SHA256SUMS`. Calculez l'empreinte du paquet téléchargé et comparez-la à la
+ligne correspondante de ce fichier :
+
+- Linux : `sha256sum -c --ignore-missing SHA256SUMS` (dans le dossier des téléchargements) doit répondre `OK`.
+- macOS : `shasum -a 256 <fichier>`
+- Windows (PowerShell) : `Get-FileHash <fichier>`
 
 ## Ce qui fonctionne selon le système
 
