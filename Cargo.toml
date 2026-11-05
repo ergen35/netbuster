@@ -1,0 +1,43 @@
+[package]
+name = "netbuster"
+version = "0.1.0"
+edition = "2021"
+rust-version = "1.95"
+description = "NetBuster : surveillance et gestion du réseau du PC, en temps réel"
+authors = ["Serge Eric Hotegni"]
+repository = "https://github.com/ergen35/clairiere"
+
+[lib]
+name = "netbuster"
+path = "src/lib.rs"
+
+[[bin]]
+name = "netbuster"
+path = "src/main.rs"
+
+[dependencies]
+eframe = { version = "0.37", default-features = false, features = ["default_fonts", "glow", "wayland", "x11"] }
+egui_extras = { version = "0.37", default-features = false }
+egui-pop-phosphor = { version = "0.15", default-features = false, features = ["regular"] }
+image = { version = "0.25", default-features = false, features = ["png"] }
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+libc = "0.2"
+ureq = { version = "3", default-features = false, features = ["rustls", "json"] }
+ring = "0.17"
+chrono = { version = "0.4", default-features = false, features = ["clock"] }
+
+[dev-dependencies]
+egui_kittest = { version = "0.37", features = ["eframe"] }
+egui = "0.37"
+
+[profile.dev]
+opt-level = 1
+
+[profile.dev.package."*"]
+opt-level = 2
+
+[profile.release]
+opt-level = 3
+lto = "thin"
+strip = true
