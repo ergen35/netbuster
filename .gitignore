@@ -3,3 +3,6 @@
 
 # Captures d'écran et données d'essai
 /shots/
+
+# Paquets fabriqués
+/dist/

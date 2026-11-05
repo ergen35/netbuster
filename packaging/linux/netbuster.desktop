@@ -1,0 +1,13 @@
+[Desktop Entry]
+Type=Application
+Version=1.0
+Name=NetBuster
+GenericName=Surveillance du réseau
+Comment=Surveiller et gérer le réseau de ce PC, en temps réel
+Exec=netbuster
+Icon=netbuster
+Terminal=false
+Categories=Network;Monitor;
+Keywords=réseau;network;paquets;packets;pare-feu;firewall;ports;traceroute;ssh;
+StartupWMClass=netbuster
+StartupNotify=true

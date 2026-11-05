@@ -1,0 +1,17 @@
+#!/bin/sh
+# À la désinstallation, le service de capture part avec le programme : il ne doit pas continuer
+# à capturer le trafic sans que rien ne le montre. Une mise à jour, elle, le laisse en place.
+set -e
+UNIT=/etc/systemd/system/netbuster-capture.service
+COPY_DIR=/usr/local/lib/netbuster
+if [ "$1" = remove ] && [ -f "$UNIT" ]; then
+    if command -v systemctl >/dev/null 2>&1; then
+        systemctl disable --now netbuster-capture.service || true
+    fi
+    rm -f "$UNIT"
+    rm -rf "$COPY_DIR"
+    if command -v systemctl >/dev/null 2>&1; then
+        systemctl daemon-reload || true
+    fi
+fi
+exit 0

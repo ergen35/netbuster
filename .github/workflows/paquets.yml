@@ -1,0 +1,120 @@
+# Vérifie NetBuster sur Linux, Windows et macOS, puis fabrique les paquets de chaque système.
+# Une étiquette v* (par exemple v0.1.0) les publie en plus dans une version GitHub.
+name: Paquets
+
+on:
+  push:
+    branches: [main]
+    tags: ['v*']
+  pull_request:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+env:
+  RUST_VERSION: 1.95.0
+
+jobs:
+  # Hors conteneur : le mode test de NetBuster refuse de tourner en administrateur.
+  tests-linux:
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v4
+      - name: Installer les outils
+        run: |
+          rustup toolchain install "$RUST_VERSION" --profile minimal
+          rustup default "$RUST_VERSION"
+      - name: Tests
+        run: cargo test --locked
+
+  linux:
+    needs: tests-linux
+    runs-on: ubuntu-24.04
+    # Une distribution ancienne : le paquet fonctionne alors aussi sur les plus récentes.
+    container: ubuntu:22.04
+    steps:
+      - name: Installer les outils
+        run: |
+          apt-get update
+          apt-get install -y --no-install-recommends build-essential ca-certificates curl dpkg-dev git xz-utils
+          curl -sSf https://sh.rustup.rs | sh -s -- -y --profile minimal --default-toolchain "$RUST_VERSION"
+          echo "$HOME/.cargo/bin" >> "$GITHUB_PATH"
+      - uses: actions/checkout@v4
+      - name: Paquets
+        run: packaging/linux/build.sh
+      - uses: actions/upload-artifact@v4
+        with:
+          name: paquets-linux
+          path: |
+            dist/*.deb
+            dist/*.tar.gz
+
+  windows:
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Installer les outils
+        run: |
+          rustup toolchain install $env:RUST_VERSION --profile minimal
+          rustup default $env:RUST_VERSION
+          choco install innosetup -y --no-progress
+      - name: Tests
+        run: cargo test --locked --lib
+      - name: Paquets
+        run: packaging\windows\build.ps1
+      - uses: actions/upload-artifact@v4
+        with:
+          name: paquets-windows
+          path: |
+            dist/*.zip
+            dist/*-setup.exe
+
+  macos:
+    runs-on: macos-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Installer les outils
+        run: |
+          rustup toolchain install "$RUST_VERSION" --profile minimal
+          rustup default "$RUST_VERSION"
+      - name: Tests
+        run: cargo test --locked --lib
+      - name: Paquets
+        run: packaging/macos/build.sh
+      - uses: actions/upload-artifact@v4
+        with:
+          name: paquets-macos
+          path: dist/*.dmg
+
+  publier:
+    if: startsWith(github.ref, 'refs/tags/v')
+    needs: [linux, windows, macos]
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/checkout@v4
+      - name: Vérifier que l'étiquette correspond à la version
+        run: |
+          version="$(sed -n 's/^version = "\(.*\)"$/\1/p' Cargo.toml | head -n 1)"
+          if [ "$GITHUB_REF_NAME" != "v$version" ]; then
+            echo "L'étiquette $GITHUB_REF_NAME ne correspond pas à la version $version de Cargo.toml" >&2
+            exit 1
+          fi
+      - uses: actions/download-artifact@v4
+        with:
+          path: paquets
+          merge-multiple: true
+      - name: Sommes de contrôle
+        run: cd paquets && sha256sum -- * > SHA256SUMS && cat SHA256SUMS
+      - name: Créer ou mettre à jour la version GitHub
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          # Rejouable : si la version existe déjà, on remplace ses fichiers.
+          if gh release view "$GITHUB_REF_NAME" --repo "$GITHUB_REPOSITORY" >/dev/null 2>&1; then
+            gh release upload "$GITHUB_REF_NAME" paquets/* --repo "$GITHUB_REPOSITORY" --clobber
+          else
+            gh release create "$GITHUB_REF_NAME" paquets/* --repo "$GITHUB_REPOSITORY" --title "NetBuster $GITHUB_REF_NAME" --generate-notes
+          fi

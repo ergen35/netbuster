@@ -1,0 +1,14 @@
+#!/bin/sh
+# Le service de capture, s'il est activé, tourne depuis sa propre copie du programme :
+# elle doit suivre la version du paquet.
+set -e
+UNIT=/etc/systemd/system/netbuster-capture.service
+COPY=/usr/local/lib/netbuster/netbuster
+if [ "$1" = configure ] && [ -f "$UNIT" ] && [ -x "$COPY" ]; then
+    install -m 0755 /usr/bin/netbuster "$COPY.new"
+    mv -f "$COPY.new" "$COPY"
+    if command -v systemctl >/dev/null 2>&1; then
+        systemctl try-restart netbuster-capture.service || true
+    fi
+fi
+exit 0
