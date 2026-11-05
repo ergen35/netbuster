@@ -16,6 +16,9 @@ pub enum Cmd {
     WriteFile { id: u64, path: String, content: String },
     StartCapture { snap: u32 },
     StopCapture,
+    /// Installe le service de capture. Le compte vient du système, jamais de la fenêtre.
+    ServiceInstall { id: u64 },
+    ServiceRemove { id: u64 },
 }
 
 #[derive(Debug, Clone, Default, Serialize, Deserialize)]
@@ -34,6 +37,26 @@ pub enum Event {
     CaptureStopped,
     CaptureError(String),
     CaptureStats { packets: u64, drops: u64 },
+    /// La fenêtre vient de se relier au service de capture.
+    ServiceUp,
+    ServiceDown,
+    ServiceStats(ServiceStats),
+    /// Un fichier de l'historique a fini d'être lu.
+    HistoryLoaded { path: String, count: usize },
+}
+
+/// Ce que le service de capture dit de lui-même, chaque seconde.
+#[derive(Debug, Clone, Default, PartialEq, Serialize, Deserialize)]
+pub struct ServiceStats {
+    pub packets: u64,
+    /// Perdus par le noyau, ou faute de pouvoir écrire assez vite.
+    pub drops: u64,
+    pub stored_bytes: u64,
+    pub files: u32,
+    pub limit_bytes: u64,
+    /// Disque presque plein : l'écriture est suspendue.
+    pub disk_low: bool,
+    pub since_us: u64,
 }
 
 /// Paquet brut sorti du noyau. Sans en-tête de liaison : `proto` donne le type (0x0800, 0x86dd…).

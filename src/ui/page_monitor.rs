@@ -25,10 +25,10 @@ pub fn tile(ui: &mut Ui, width: f32, title: &str, sym: Option<(&str, egui::Color
                 if let Some((s, c)) = sym {
                     ui.label(RichText::new(s).color(c).size(14.0));
                 }
-                ui.label(RichText::new(title).color(INK2).size(12.5));
+                ui.label(RichText::new(title).color(pal().ink2).size(12.5));
             });
-            ui.label(RichText::new(value).font(bold(24.0)).color(INK));
-            ui.add(egui::Label::new(RichText::new(sub).color(MUTED).size(12.0)).truncate());
+            ui.label(RichText::new(value).font(bold(24.0)).color(pal().ink));
+            ui.add(egui::Label::new(RichText::new(sub).color(pal().muted).size(12.0)).truncate());
         });
     });
 }
@@ -73,19 +73,19 @@ pub fn provider_label(app: &App, m: &Model, f: &Flow) -> String {
 
 pub fn dir_symbol(d: FlowDir) -> (&'static str, egui::Color32) {
     match d {
-        FlowDir::Incoming => (icon::ARROW_DOWN, RX),
-        FlowDir::Outgoing => (icon::ARROW_UP, TX),
-        FlowDir::Listening => (icon::DOOR_OPEN, MUTED),
-        FlowDir::Local => (icon::ARROWS_LEFT_RIGHT, MUTED),
+        FlowDir::Incoming => (icon::ARROW_DOWN, pal().rx),
+        FlowDir::Outgoing => (icon::ARROW_UP, pal().tx),
+        FlowDir::Listening => (icon::DOOR_OPEN, pal().muted),
+        FlowDir::Local => (icon::ARROWS_LEFT_RIGHT, pal().muted),
     }
 }
 
 pub fn crypto_symbol(c: Crypto) -> (&'static str, egui::Color32) {
     match c {
-        Crypto::Yes => (icon::LOCK, GOOD),
-        Crypto::Probable => (icon::LOCK, MUTED),
-        Crypto::No => (icon::LOCK_OPEN, WARNING),
-        Crypto::Unknown => (icon::QUESTION, MUTED),
+        Crypto::Yes => (icon::LOCK, pal().good),
+        Crypto::Probable => (icon::LOCK, pal().muted),
+        Crypto::No => (icon::LOCK_OPEN, pal().warning),
+        Crypto::Unknown => (icon::QUESTION, pal().muted),
     }
 }
 
@@ -116,8 +116,8 @@ pub fn overview(app: &mut App, ui: &mut Ui) {
         let tw = (w - 4.0 * gap) / 5.0;
         ui.horizontal_top(|ui| {
             ui.spacing_mut().item_spacing.x = gap;
-            tile(ui, tw, "Reçu maintenant", Some((icon::ARROW_DOWN, RX)), &fmt_rate(rx), &format!("{} depuis l'ouverture", fmt_bytes(session_rx)));
-            tile(ui, tw, "Envoyé maintenant", Some((icon::ARROW_UP, TX)), &fmt_rate(tx), &format!("{} depuis l'ouverture", fmt_bytes(session_tx)));
+            tile(ui, tw, "Reçu maintenant", Some((icon::ARROW_DOWN, pal().rx)), &fmt_rate(rx), &format!("{} depuis l'ouverture", fmt_bytes(session_rx)));
+            tile(ui, tw, "Envoyé maintenant", Some((icon::ARROW_UP, pal().tx)), &fmt_rate(tx), &format!("{} depuis l'ouverture", fmt_bytes(session_tx)));
             tile(ui, tw, "Consommé aujourd'hui", None, &fmt_bytes(day_rx + day_tx), &format!("{} {}   {} {}", icon::ARROW_DOWN, fmt_bytes(day_rx), icon::ARROW_UP, fmt_bytes(day_tx)));
             tile(ui, tw, "Connexions actives", None, &fmt_count((incoming + outgoing) as u64), &format!("{} {}, {} {}", incoming, if incoming > 1 { "entrantes" } else { "entrante" }, outgoing, if outgoing > 1 { "sortantes" } else { "sortante" }));
             tile(ui, tw, "Ports exposés au réseau", None, &fmt_count(exposed as u64), &format!("{} au total", plural(listening, "point d'écoute").replace("point d'écoutes", "points d'écoute")));
@@ -127,10 +127,10 @@ pub fn overview(app: &mut App, ui: &mut Ui) {
         card(ui, |ui| {
             ui.horizontal(|ui| {
                 section_title(ui, "Bande passante");
-                ui.label(RichText::new(scope_note(app)).color(MUTED).size(12.5));
+                ui.label(RichText::new(scope_note(app)).color(pal().muted).size(12.5));
                 ui.add_space(10.0);
-                chart::legend_value(ui, RX, "Reçu", &fmt_rate(rx));
-                chart::legend_value(ui, TX, "Envoyé", &fmt_rate(tx));
+                chart::legend_value(ui, pal().rx, "Reçu", &fmt_rate(rx));
+                chart::legend_value(ui, pal().tx, "Envoyé", &fmt_rate(tx));
                 ui.with_layout(Layout::right_to_left(Align::Center), |ui| {
                     chips(ui, &mut app.range_secs, &[(60.0, "1 min"), (300.0, "5 min"), (900.0, "15 min"), (3600.0, "1 h")]);
                 });
@@ -147,14 +147,17 @@ pub fn overview(app: &mut App, ui: &mut Ui) {
             ui.spacing_mut().item_spacing.x = gap;
             ui.allocate_ui_with_layout(Vec2::new(columns, 10.0), Layout::top_down(Align::Min), |ui| {
                 ui.set_width(columns);
+                // Les deux listes qui bougent : figées ensemble, la bande passante reste en direct.
+                let frozen = app.overview_freeze.view.clone();
+                let lists: &Model = frozen.as_deref().unwrap_or(&m);
                 card(ui, |ui| {
                     ui.set_width(columns - 30.0);
-                    top_apps(app, ui, &m, iface_ref);
+                    top_apps(app, ui, lists, iface_ref);
                 });
                 ui.add_space(4.0);
                 card(ui, |ui| {
                     ui.set_width(columns - 30.0);
-                    recent_events(ui, &m);
+                    recent_events(app, ui, lists, &m);
                 });
             });
             ui.allocate_ui_with_layout(Vec2::new(columns, 10.0), Layout::top_down(Align::Min), |ui| {
@@ -187,10 +190,10 @@ fn top_apps(app: &mut App, ui: &mut Ui, m: &Model, iface: Option<&str>) {
     for a in tree.iter().take(6) {
         let (rect, resp) = table_row(ui, 28.0, false, &a.name);
         let r = col_rects(rect, &cols);
-        cell(ui, r[0], &a.name, &body(13.0), INK, false);
+        cell(ui, r[0], &a.name, &body(13.0), pal().ink, false);
         chart::split_bar(ui, r[1].shrink2(Vec2::new(4.0, 0.0)), a.rx_rate, a.tx_rate, scale);
-        cell(ui, r[2], &fmt_rate(a.rx_rate), &mono(11.5), INK2, true);
-        cell(ui, r[3], &fmt_rate(a.tx_rate), &mono(11.5), INK2, true);
+        cell(ui, r[2], &fmt_rate(a.rx_rate), &mono(11.5), pal().ink2, true);
+        cell(ui, r[3], &fmt_rate(a.tx_rate), &mono(11.5), pal().ink2, true);
         if resp.clicked() {
             app.apps.expanded.insert(a.name.clone());
             app.page = Page::Apps;
@@ -198,8 +201,14 @@ fn top_apps(app: &mut App, ui: &mut Ui, m: &Model, iface: Option<&str>) {
     }
 }
 
-fn recent_events(ui: &mut Ui, m: &Model) {
-    section_title(ui, "Activité récente");
+fn recent_events(app: &mut App, ui: &mut Ui, m: &Model, live: &Model) {
+    ui.horizontal(|ui| {
+        section_title(ui, "Activité récente");
+        ui.with_layout(Layout::right_to_left(Align::Center), |ui| {
+            // Dans cette zone, le dernier ajouté se place à gauche : le bouton reste contre le bord.
+            freeze_button(ui, &mut app.overview_freeze, live);
+        });
+    });
     if m.events.is_empty() {
         hint(ui, "Les connexions qui s'ouvrent et se ferment apparaîtront ici.");
         return;
@@ -207,11 +216,13 @@ fn recent_events(ui: &mut Ui, m: &Model) {
     for e in m.events.iter().rev().take(8) {
         ui.horizontal(|ui| {
             ui.spacing_mut().item_spacing.x = 6.0;
-            ui.label(RichText::new(&e.wall).font(mono(11.5)).color(MUTED));
-            let (sym, c) = if e.opened { (icon::PLUS_CIRCLE, GOOD) } else { (icon::MINUS_CIRCLE, MUTED) };
+            ui.label(RichText::new(&e.wall).font(mono(11.5)).color(pal().muted));
+            let (sym, c) = if e.opened { (icon::PLUS_CIRCLE, pal().good) } else { (icon::MINUS_CIRCLE, pal().muted) };
             ui.label(RichText::new(sym).color(c).size(14.0));
-            ui.add(egui::Label::new(RichText::new(&e.app).color(INK).size(12.5)).truncate());
-            ui.label(RichText::new(format!("{} {}", if e.opened { "ouvre" } else { "ferme" }, e.remote)).font(mono(11.5)).color(INK2));
+            ui.add(egui::Label::new(RichText::new(&e.app).color(pal().ink).size(12.5)).truncate());
+            ui.label(RichText::new(if e.opened { "ouvre" } else { "ferme" }).font(mono(11.5)).color(pal().ink2));
+            copy_inline(ui, &e.remote.ip().to_string());
+            ui.label(RichText::new(e.remote.to_string()).font(mono(11.5)).color(pal().ink2));
         });
     }
 }
@@ -228,13 +239,16 @@ fn interfaces_list(app: &mut App, ui: &mut Ui, m: &Model) {
         let r = col_rects(rect, &cols);
         let top = Rect::from_min_size(r[0].min, Vec2::new(r[0].width(), 24.0));
         let bottom = Rect::from_min_max(Pos2::new(r[0].left(), r[0].top() + 21.0), r[0].max);
-        cell(ui, top, &i.name, &body(13.0), INK, false);
-        let addr = i.addrs.iter().find(|a| a.0.is_ipv4()).or(i.addrs.first()).map(|a| a.0.to_string()).unwrap_or_default();
-        cell(ui, bottom, &format!("{}  {addr}", i.kind.label()), &body(11.5), MUTED, false);
-        let (sym, c, label) = if i.is_up() { (icon::CHECK_CIRCLE, GOOD, "Active") } else { (icon::MINUS_CIRCLE, MUTED, "Inactive") };
-        icon_cell(ui, r[1], sym, c, label, &body(12.0), INK2);
-        cell(ui, r[2], &fmt_rate(i.rx_rate), &mono(11.5), INK2, true);
-        cell(ui, r[3], &fmt_rate(i.tx_rate), &mono(11.5), INK2, true);
+        cell(ui, top, &i.name, &body(13.0), pal().ink, false);
+        let addr = i.addrs.iter().find(|a| a.0.is_ipv4()).or(i.addrs.first()).map(|a| a.0.to_string());
+        match &addr {
+            Some(a) => ip_cell(ui, bottom, a, &format!("{}  {a}", i.kind.label()), &body(11.5), pal().muted),
+            None => cell(ui, bottom, i.kind.label(), &body(11.5), pal().muted, false),
+        }
+        let (sym, c, label) = if i.is_up() { (icon::CHECK_CIRCLE, pal().good, "Active") } else { (icon::MINUS_CIRCLE, pal().muted, "Inactive") };
+        icon_cell(ui, r[1], sym, c, label, &body(12.0), pal().ink2);
+        cell(ui, r[2], &fmt_rate(i.rx_rate), &mono(11.5), pal().ink2, true);
+        cell(ui, r[3], &fmt_rate(i.tx_rate), &mono(11.5), pal().ink2, true);
         chart::spark_samples_in(ui, r[4], &i.history, 120);
         if resp.clicked() {
             app.iface = if selected { None } else { Some(i.name.clone()) };
@@ -263,7 +277,9 @@ enum TreeRow {
 
 pub fn apps(app: &mut App, ui: &mut Ui) {
     let shared = app.shared.clone();
-    let m = shared.model.lock().unwrap();
+    let live = shared.model.lock().unwrap();
+    let frozen = app.apps.freeze.view.clone();
+    let m: &Model = frozen.as_deref().unwrap_or(&live);
     let capturing = m.capture.running;
     let iface = app.iface.clone();
     let mut tree = m.app_tree(iface.as_deref(), app.apps.show_local, false);
@@ -283,8 +299,9 @@ pub fn apps(app: &mut App, ui: &mut Ui) {
     ui.horizontal(|ui| {
         search_box(ui, &mut app.apps.search, "Programme, PID, adresse, site…", 300.0);
         ui.checkbox(&mut app.apps.show_local, "Boucle locale").on_hover_text("Le trafic qu'un programme échange avec un autre programme de ce PC.");
+        freeze_button(ui, &mut app.apps.freeze, &live);
         ui.with_layout(Layout::right_to_left(Align::Center), |ui| {
-            let (text, c) = if capturing { ("Mesure au paquet près, TCP et UDP", GOOD) } else { ("Mesure par compteurs TCP", WARNING) };
+            let (text, c) = if capturing { ("Mesure au paquet près, TCP et UDP", pal().good) } else { ("Mesure par compteurs TCP", pal().warning) };
             status_badge(ui, if capturing { icon::CHECK_CIRCLE } else { icon::INFO }, c, text);
         });
     });
@@ -297,7 +314,7 @@ pub fn apps(app: &mut App, ui: &mut Ui) {
                 "{} ne sont liés à aucun programme : c'est du trafic UDP (HTTP/3, visioconférence, DNS), des en-têtes, ou le trafic de services système. Le mode administrateur mesure tout, paquet par paquet.",
                 fmt_rate(missing)
             );
-            if notice(ui, icon::INFO, WARNING, "Une partie du trafic n'est pas attribuée", &t, Some("Passer administrateur")) {
+            if notice(ui, icon::INFO, pal().warning, "Une partie du trafic n'est pas attribuée", &t, Some("Passer administrateur")) {
                 shared.enable_admin();
             }
         }
@@ -359,17 +376,17 @@ pub fn apps(app: &mut App, ui: &mut Ui) {
                     let open = app.apps.expanded.contains(&a.name);
                     let (rect, resp) = table_row(ui, 32.0, false, &a.name);
                     let r = col_rects(rect, &cols);
-                    ui.painter().text(Pos2::new(r[0].left() + 10.0, r[0].center().y), egui::Align2::CENTER_CENTER, if open { icon::CARET_DOWN } else { icon::CARET_RIGHT }, body(12.0), INK2);
+                    ui.painter().text(Pos2::new(r[0].left() + 10.0, r[0].center().y), egui::Align2::CENTER_CENTER, if open { icon::CARET_DOWN } else { icon::CARET_RIGHT }, body(12.0), pal().ink2);
                     let name_r = Rect::from_min_max(Pos2::new(r[0].left() + 18.0, r[0].top()), r[0].max);
                     let suffix = match a.pids.as_slice() {
                         [one] => one.pid.map(|p| format!("  ·  processus {p}")).unwrap_or_default(),
                         many => format!("  ·  {} processus", many.len()),
                     };
-                    cell(ui, name_r, &format!("{}{}  ·  {}", a.name, suffix, plural(a.open_flows, "appel")), &bold(13.0), INK, false);
-                    cell(ui, r[1], &fmt_rate(a.rx_rate), &mono(12.0), INK, true);
-                    cell(ui, r[2], &fmt_rate(a.tx_rate), &mono(12.0), INK, true);
-                    cell(ui, r[3], &fmt_bytes(a.rx_total), &mono(12.0), INK2, true);
-                    cell(ui, r[4], &fmt_bytes(a.tx_total), &mono(12.0), INK2, true);
+                    cell(ui, name_r, &format!("{}{}  ·  {}", a.name, suffix, plural(a.open_flows, "appel")), &bold(13.0), pal().ink, false);
+                    cell(ui, r[1], &fmt_rate(a.rx_rate), &mono(12.0), pal().ink, true);
+                    cell(ui, r[2], &fmt_rate(a.tx_rate), &mono(12.0), pal().ink, true);
+                    cell(ui, r[3], &fmt_bytes(a.rx_total), &mono(12.0), pal().ink2, true);
+                    cell(ui, r[4], &fmt_bytes(a.tx_total), &mono(12.0), pal().ink2, true);
                     let key = (iface.clone().unwrap_or_default(), a.name.clone());
                     if let Some(h) = m.app_hist.get(&key) {
                         chart::spark_in(ui, r[5], h);
@@ -390,14 +407,14 @@ pub fn apps(app: &mut App, ui: &mut Ui) {
                     let label = p.pid.map(|x| format!("Processus {x}")).unwrap_or_else(|| "Processus inconnu".into());
                     let (rect, resp) = table_row(ui, 32.0, false, &label);
                     let r = col_rects(rect, &cols);
-                    ui.painter().text(Pos2::new(r[0].left() + 28.0, r[0].center().y), egui::Align2::CENTER_CENTER, if open { icon::CARET_DOWN } else { icon::CARET_RIGHT }, body(12.0), INK2);
+                    ui.painter().text(Pos2::new(r[0].left() + 28.0, r[0].center().y), egui::Align2::CENTER_CENTER, if open { icon::CARET_DOWN } else { icon::CARET_RIGHT }, body(12.0), pal().ink2);
                     let name_r = Rect::from_min_max(Pos2::new(r[0].left() + 36.0, r[0].top()), r[0].max);
                     let extra = p.pid.and_then(|x| m.procs.get(&x)).map(|i| i.cmdline.clone()).unwrap_or_default();
-                    cell(ui, name_r, &format!("{label}  ·  {}  {extra}", plural(p.open_flows, "appel")), &body(12.5), INK2, false);
-                    cell(ui, r[1], &fmt_rate(p.rx_rate), &mono(12.0), INK2, true);
-                    cell(ui, r[2], &fmt_rate(p.tx_rate), &mono(12.0), INK2, true);
-                    cell(ui, r[3], &fmt_bytes(p.rx_total), &mono(12.0), MUTED, true);
-                    cell(ui, r[4], &fmt_bytes(p.tx_total), &mono(12.0), MUTED, true);
+                    cell(ui, name_r, &format!("{label}  ·  {}  {extra}", plural(p.open_flows, "appel")), &body(12.5), pal().ink2, false);
+                    cell(ui, r[1], &fmt_rate(p.rx_rate), &mono(12.0), pal().ink2, true);
+                    cell(ui, r[2], &fmt_rate(p.tx_rate), &mono(12.0), pal().ink2, true);
+                    cell(ui, r[3], &fmt_bytes(p.rx_total), &mono(12.0), pal().muted, true);
+                    cell(ui, r[4], &fmt_bytes(p.tx_total), &mono(12.0), pal().muted, true);
                     if resp.clicked() {
                         if open {
                             app.apps.collapsed_pids.insert(k);
@@ -417,16 +434,16 @@ pub fn apps(app: &mut App, ui: &mut Ui) {
                     let indent = 20.0 + 16.0 * *depth as f32;
                     let (sym, c) = dir_symbol(f.dir);
                     ui.painter().text(Pos2::new(r[0].left() + indent, r[0].center().y), egui::Align2::CENTER_CENTER, sym, body(13.0), c);
-                    let text_r = Rect::from_min_max(Pos2::new(r[0].left() + indent + 8.0, r[0].top()), r[0].max);
+                    let text_r = Rect::from_min_max(Pos2::new(r[0].left() + indent + 10.0, r[0].top()), r[0].max);
                     let who = if name.is_empty() { f.key.remote.to_string() } else { format!("{name}  ({})", f.key.remote) };
                     let proto = if f.app_proto.is_empty() { f.key.proto.label() } else { f.app_proto };
                     let tail = if provider.is_empty() { String::new() } else { format!("  ·  {provider}") };
-                    let color = if f.open { INK2 } else { MUTED };
-                    cell(ui, text_r, &format!("{proto}  {who}{tail}"), &body(12.5), color, false);
+                    let color = if f.open { pal().ink2 } else { pal().muted };
+                    ip_cell(ui, text_r, &f.key.remote.ip().to_string(), &format!("{proto}  {who}{tail}"), &body(12.5), color);
                     cell(ui, r[1], &fmt_rate(f.rx_rate), &mono(11.5), color, true);
                     cell(ui, r[2], &fmt_rate(f.tx_rate), &mono(11.5), color, true);
-                    cell(ui, r[3], &fmt_bytes(f.rx_total), &mono(11.5), MUTED, true);
-                    cell(ui, r[4], &fmt_bytes(f.tx_total), &mono(11.5), MUTED, true);
+                    cell(ui, r[3], &fmt_bytes(f.rx_total), &mono(11.5), pal().muted, true);
+                    cell(ui, r[4], &fmt_bytes(f.tx_total), &mono(11.5), pal().muted, true);
                     chart::spark_in(ui, r[5], &f.hist);
                     if !f.is_listener() && ip_scope(f.key.remote.ip()) == IpScope::Public {
                         let ip = f.key.remote.ip();
@@ -458,7 +475,7 @@ pub fn flow_detail(app: &mut App, ui: &mut Ui, m: &Model, f: &Flow) -> bool {
         ui.horizontal(|ui| {
             let (sym, c) = dir_symbol(f.dir);
             ui.label(RichText::new(sym).color(c).size(16.0));
-            ui.label(RichText::new(format!("{} — {} {}", f.app_name(), f.dir.label().to_lowercase(), f.key.proto.label())).font(bold(14.0)).color(INK));
+            ui.label(RichText::new(format!("{} — {} {}", f.app_name(), f.dir.label().to_lowercase(), f.key.proto.label())).font(bold(14.0)).color(pal().ink));
             ui.with_layout(Layout::right_to_left(Align::Center), |ui| {
                 if small_button(ui, icon::X).on_hover_text("Fermer cette fiche").clicked() {
                     close = true;
@@ -495,8 +512,8 @@ pub fn flow_detail(app: &mut App, ui: &mut Ui, m: &Model, f: &Flow) -> bool {
             ui.allocate_ui_with_layout(Vec2::new(columns, 120.0), Layout::top_down(Align::Min), |ui| {
                 ui.set_width(columns);
                 ui.spacing_mut().item_spacing.y = 2.0;
-                kv_mono(ui, "Adresse locale", &f.key.local.to_string());
-                kv_mono(ui, "Correspondant", &f.key.remote.to_string());
+                kv_ip(ui, "Adresse locale", &f.key.local.to_string());
+                kv_ip(ui, "Correspondant", &f.key.remote.to_string());
                 kv(ui, "Nom", &non_empty(remote_name(app, m, f)));
                 kv(ui, "Fournisseur", &non_empty(provider_label(app, m, f)));
                 kv(ui, "Interface", f.iface.as_deref().unwrap_or("Toutes"));
@@ -538,7 +555,9 @@ fn non_empty(s: String) -> String {
 
 pub fn connections(app: &mut App, ui: &mut Ui) {
     let shared = app.shared.clone();
-    let m = shared.model.lock().unwrap();
+    let live = shared.model.lock().unwrap();
+    let frozen = app.conns.freeze.view.clone();
+    let m: &Model = frozen.as_deref().unwrap_or(&live);
     let iface = app.iface.clone();
 
     let all: Vec<&Flow> = m.flows.values().filter(|f| m.flow_visible(f, iface.as_deref(), app.conns.show_local)).collect();
@@ -546,12 +565,14 @@ pub fn connections(app: &mut App, ui: &mut Ui) {
     let n_out = all.iter().filter(|f| f.open && f.dir == FlowDir::Outgoing).count();
     let n_listen = all.iter().filter(|f| f.open && f.dir == FlowDir::Listening).count();
 
-    ui.horizontal(|ui| {
+    // Passe à la ligne sur une fenêtre étroite : le bouton « Figer » doit rester accessible.
+    ui.horizontal_wrapped(|ui| {
         let (a, b, c, d) = (format!("Actives  {}", n_in + n_out), format!("Entrantes  {n_in}"), format!("Sortantes  {n_out}"), format!("En écoute  {n_listen}"));
         chips(ui, &mut app.conns.filter, &[(ConnFilter::All, a.as_str()), (ConnFilter::In, b.as_str()), (ConnFilter::Out, c.as_str()), (ConnFilter::Listen, d.as_str())]);
         search_box(ui, &mut app.conns.search, "Programme, adresse, port, site…", 260.0);
         ui.checkbox(&mut app.conns.show_local, "Boucle locale");
         ui.checkbox(&mut app.conns.show_closed, "Fermées récemment");
+        freeze_button(ui, &mut app.conns.freeze, &live);
     });
     ui.add_space(2.0);
 
@@ -577,17 +598,19 @@ pub fn connections(app: &mut App, ui: &mut Ui) {
         })
         .collect();
 
+    // Sur une fenêtre étroite, les colonnes fixes se serrent pour laisser le nom et le fournisseur visibles.
+    let narrow = ui.available_width() < 1000.0;
     let cols = [
-        col("Programme", 150.0),
-        col("Sens", 90.0),
-        col("Proto", 62.0),
-        col("Correspondant", 170.0),
+        col("Programme", if narrow { 118.0 } else { 150.0 }),
+        col("Sens", if narrow { 78.0 } else { 90.0 }),
+        col("Proto", if narrow { 48.0 } else { 62.0 }),
+        col("Correspondant", 190.0),
         flex("Nom", 1.2),
         flex("Fournisseur", 1.0),
-        col("État", 100.0),
-        col_r("Reçu", 84.0),
-        col_r("Envoyé", 84.0),
-        col_r("Latence", 72.0),
+        col("État", if narrow { 76.0 } else { 100.0 }),
+        col_r("Reçu", if narrow { 76.0 } else { 84.0 }),
+        col_r("Envoyé", if narrow { 76.0 } else { 84.0 }),
+        col_r("Latence", if narrow { 60.0 } else { 72.0 }),
     ];
     let sort = app.conns.sort.clone();
     rows.sort_by(|a, b| {
@@ -634,14 +657,14 @@ pub fn connections(app: &mut App, ui: &mut Ui) {
             let is_sel = app.conns.selected == Some(f.key);
             let (rect, resp) = table_row(ui, 30.0, is_sel, &format!("{} {}", f.app_name(), f.key.remote));
             let r = col_rects(rect, &cols);
-            let ink = if f.open { INK } else { MUTED };
-            let ink2 = if f.open { INK2 } else { MUTED };
+            let ink = if f.open { pal().ink } else { pal().muted };
+            let ink2 = if f.open { pal().ink2 } else { pal().muted };
             cell(ui, r[0], &f.app_name(), &body(13.0), ink, false);
             let (sym, c) = dir_symbol(f.dir);
             icon_cell(ui, r[1], sym, c, f.dir.label(), &body(12.0), ink2);
             cell(ui, r[2], if f.app_proto.is_empty() { f.key.proto.label() } else { f.app_proto }, &body(12.0), ink2, false);
-            let remote = if f.is_listener() { f.key.local.to_string() } else { f.key.remote.to_string() };
-            cell(ui, r[3], &remote, &mono(12.0), ink2, false);
+            let shown = if f.is_listener() { f.key.local } else { f.key.remote };
+            ip_cell(ui, r[3], &shown.ip().to_string(), &shown.to_string(), &mono(12.0), ink2);
             cell(ui, r[4], name, &body(12.5), ink2, false);
             cell(ui, r[5], prov, &body(12.5), ink2, false);
             cell(ui, r[6], f.state_label(), &body(12.0), ink2, false);
@@ -678,17 +701,19 @@ fn services() -> &'static HashMap<(u16, String), String> {
 fn port_exposure(f: &Flow) -> (&'static str, egui::Color32, String) {
     let ip = f.key.local.ip();
     if ip.is_loopback() {
-        (icon::HOUSE, GOOD, "Ce PC seulement".to_string())
+        (icon::HOUSE, pal().good, "Ce PC seulement".to_string())
     } else if ip.is_unspecified() {
-        (icon::GLOBE, WARNING, "Tout le réseau".to_string())
+        (icon::GLOBE, pal().warning, "Tout le réseau".to_string())
     } else {
-        (icon::SHARE_NETWORK, SERIOUS, format!("Via {}", f.iface.clone().unwrap_or_else(|| ip.to_string())))
+        (icon::SHARE_NETWORK, pal().serious, format!("Via {}", f.iface.clone().unwrap_or_else(|| ip.to_string())))
     }
 }
 
 pub fn ports(app: &mut App, ui: &mut Ui) {
     let shared = app.shared.clone();
-    let m = shared.model.lock().unwrap();
+    let live = shared.model.lock().unwrap();
+    let frozen = app.ports.freeze.view.clone();
+    let m: &Model = frozen.as_deref().unwrap_or(&live);
     let iface = app.iface.clone();
     let ufw_active = manage::ufw_conf_enabled();
 
@@ -698,13 +723,14 @@ pub fn ports(app: &mut App, ui: &mut Ui) {
     let local_set: HashSet<(Proto, u16)> = rows.iter().filter(|f| f.key.local.ip().is_loopback()).map(|f| (f.key.proto, f.key.local.port())).filter(|k| !exposed_set.contains(k)).collect();
 
     ui.horizontal(|ui| {
-        status_badge(ui, icon::GLOBE, WARNING, &format!("{} joignables depuis le réseau", plural(exposed_set.len(), "port")));
+        status_badge(ui, icon::GLOBE, pal().warning, &format!("{} joignables depuis le réseau", plural(exposed_set.len(), "port")));
         ui.add_space(6.0);
-        status_badge(ui, icon::HOUSE, GOOD, &format!("{} limités à ce PC", plural(local_set.len(), "port")));
+        status_badge(ui, icon::HOUSE, pal().good, &format!("{} limités à ce PC", plural(local_set.len(), "port")));
         ui.add_space(6.0);
-        status_badge(ui, icon::SHIELD_CHECK, if ufw_active { GOOD } else { MUTED }, if ufw_active { "Pare-feu UFW actif" } else { "UFW inactif" });
+        status_badge(ui, icon::SHIELD_CHECK, if ufw_active { pal().good } else { pal().muted }, if ufw_active { "Pare-feu UFW actif" } else { "UFW inactif" });
         ui.with_layout(Layout::right_to_left(Align::Center), |ui| {
             search_box(ui, &mut app.ports.search, "Port, programme…", 200.0);
+            freeze_button(ui, &mut app.ports.freeze, &live);
         });
     });
 
@@ -712,7 +738,7 @@ pub fn ports(app: &mut App, ui: &mut Ui) {
     ui.add_space(4.0);
     card(ui, |ui| {
         ui.horizontal(|ui| {
-            ui.label(RichText::new("Ouvrir ou fermer un port").font(bold(13.5)).color(INK));
+            ui.label(RichText::new("Ouvrir ou fermer un port").font(bold(13.5)).color(pal().ink));
             ui.add(egui::TextEdit::singleline(&mut app.ports.new_port).hint_text("Port, ex. 8080").desired_width(110.0));
             chips(ui, &mut app.ports.new_proto, &[("tcp".to_string(), "TCP"), ("udp".to_string(), "UDP")]);
             let scope_label = app.ports.new_scope.clone().unwrap_or_else(|| "Toutes les interfaces".into());
@@ -741,7 +767,7 @@ pub fn ports(app: &mut App, ui: &mut Ui) {
                 }
             }
             if let Some(e) = &app.ports.error {
-                ui.label(RichText::new(e).color(CRITICAL_TEXT).size(12.5));
+                ui.label(RichText::new(e).color(pal().critical_text).size(12.5));
             }
         });
     });
@@ -794,16 +820,16 @@ pub fn ports(app: &mut App, ui: &mut Ui) {
             let port = f.key.local.port();
             let (rect, _) = table_row(ui, 32.0, false, &format!("Port {port}"));
             let r = col_rects(rect, &cols);
-            cell(ui, r[0], &port.to_string(), &mono(12.5), INK, true);
-            cell(ui, r[1], f.key.proto.label(), &body(12.0), INK2, false);
-            cell(ui, r[2], &svc(f), &body(12.5), INK2, false);
-            cell(ui, r[3], &f.key.local.ip().to_string(), &mono(12.0), INK2, false);
+            cell(ui, r[0], &port.to_string(), &mono(12.5), pal().ink, true);
+            cell(ui, r[1], f.key.proto.label(), &body(12.0), pal().ink2, false);
+            cell(ui, r[2], &svc(f), &body(12.5), pal().ink2, false);
+            ip_cell(ui, r[3], &f.key.local.ip().to_string(), &f.key.local.ip().to_string(), &mono(12.0), pal().ink2);
             let (sym, c, text) = port_exposure(f);
-            icon_cell(ui, r[4], sym, c, &text, &body(12.0), INK2);
-            cell(ui, r[5], &f.app_name(), &body(13.0), INK, false);
-            cell(ui, r[6], &f.pid.map(|p| p.to_string()).unwrap_or_else(|| "—".into()), &mono(12.0), INK2, true);
+            icon_cell(ui, r[4], sym, c, &text, &body(12.0), pal().ink2);
+            cell(ui, r[5], &f.app_name(), &body(13.0), pal().ink, false);
+            cell(ui, r[6], &f.pid.map(|p| p.to_string()).unwrap_or_else(|| "—".into()), &mono(12.0), pal().ink2, true);
             let clients = active.get(&(f.key.proto, port)).copied().unwrap_or(0);
-            cell(ui, r[7], &clients.to_string(), &mono(12.0), INK2, true);
+            cell(ui, r[7], &clients.to_string(), &mono(12.0), pal().ink2, true);
             let proto = f.key.proto.label().to_lowercase();
             let scope = f.iface.clone().filter(|_| !f.key.local.ip().is_unspecified() && !f.key.local.ip().is_loopback());
             let (pid, name, mine) = (f.pid, f.app_name(), f.uid == Some(unsafe { libc::getuid() }));

@@ -8,7 +8,7 @@ use crate::admin::AdminState;
 use crate::model::{Model, PacketRow, Stream};
 use crate::packet::{self, Crypto, Dir};
 use crate::util::{fmt_bytes, fmt_count, home_dir, which};
-use eframe::egui::{self, Align, Color32, Frame, Layout, Margin, RichText, Ui};
+use eframe::egui::{self, Align, Frame, Layout, Margin, RichText, Ui};
 use egui_phosphor::regular as icon;
 use std::sync::atomic::Ordering;
 use std::sync::Arc;
@@ -68,12 +68,12 @@ pub fn packets(app: &mut App, ui: &mut Ui) {
         let mut m = shared.model.lock().unwrap();
         toolbar(app, ui, &mut m, admin_on);
     }
-    if !admin_on {
+    if !admin_on && !shared.service_up.load(Ordering::Relaxed) {
         ui.add_space(6.0);
         if notice(
             ui,
             icon::LOCK,
-            WARNING,
+            pal().warning,
             "La capture des paquets demande les droits administrateur",
             "Le noyau ne laisse lire les paquets qu'à l'administrateur. Votre mot de passe est demandé par le système, jamais par NetBuster, et les droits s'arrêtent à la fermeture de l'application.",
             Some("Démarrer la capture"),
@@ -85,14 +85,14 @@ pub fn packets(app: &mut App, ui: &mut Ui) {
     if let Some(e) = error {
         ui.add_space(4.0);
         ui.horizontal(|ui| {
-            ui.label(RichText::new(icon::WARNING).color(CRITICAL_TEXT));
-            ui.label(RichText::new(e).color(CRITICAL_TEXT));
+            ui.label(RichText::new(icon::WARNING).color(pal().critical_text));
+            ui.label(RichText::new(e).color(pal().critical_text));
         });
     }
     if let Some(msg) = app.packets.message.clone() {
         ui.horizontal(|ui| {
-            ui.label(RichText::new(icon::INFO).color(RX));
-            ui.label(RichText::new(msg).color(INK2).size(12.5));
+            ui.label(RichText::new(icon::INFO).color(pal().rx));
+            ui.label(RichText::new(msg).color(pal().ink2).size(12.5));
             if small_button(ui, icon::X).clicked() {
                 app.packets.message = None;
             }
@@ -128,19 +128,29 @@ pub fn packets(app: &mut App, ui: &mut Ui) {
 fn toolbar(app: &mut App, ui: &mut Ui, m: &mut Model, admin_on: bool) {
     let shared = app.shared.clone();
     ui.horizontal(|ui| {
-        if m.capture.running {
+        if m.capture.service {
+            status_badge(ui, icon::CHECK_CIRCLE, pal().good, "Capture par le service");
+        } else if m.capture.running {
             if danger_button(ui, &format!("{} Arrêter", icon::STOP)).clicked() {
                 shared.stop_capture();
             }
         } else if admin_on && primary_button(ui, &format!("{} Démarrer", icon::PLAY)).clicked() {
             shared.start_capture();
         }
-        let (sym, text) = if m.paused { (icon::PLAY, "Reprendre l'affichage") } else { (icon::PAUSE, "Figer l'affichage") };
-        if ui.add_enabled(m.capture.running || m.paused, egui::Button::new(format!("{sym} {text}"))).clicked() {
-            m.paused = !m.paused;
+        if freeze_toggle(ui, app.packets.frozen.is_some(), &app.packets.frozen_at) {
+            if app.packets.frozen.take().is_none() {
+                app.packets.frozen = Some(m.packets.iter().cloned().collect());
+                app.packets.frozen_at = chrono::Local::now().format("%H:%M:%S").to_string();
+                app.packets.frozen_seen = m.capture.seen_packets;
+            }
+        }
+        if app.packets.frozen.is_some() {
+            let waiting = m.capture.seen_packets.saturating_sub(app.packets.frozen_seen);
+            ui.label(RichText::new(format!("{} nouveaux en attente", fmt_count(waiting))).color(pal().muted).size(12.5));
         }
         if ui.button(format!("{} Vider", icon::TRASH)).clicked() {
             m.clear_packets();
+            app.packets.frozen = None;
             app.packets.selected = None;
             app.packets.flow_filter = None;
         }
@@ -148,32 +158,35 @@ fn toolbar(app: &mut App, ui: &mut Ui, m: &mut Model, admin_on: bool) {
             app.packets.message = Some(export(m));
         }
         ui.with_layout(Layout::right_to_left(Align::Center), |ui| {
-            let snap = shared.capture_snap.load(Ordering::Relaxed);
-            let label = if snap >= 65535 { "Paquets complets" } else { "Début de chaque paquet" };
-            let resp = egui::ComboBox::from_id_salt("snap").selected_text(label).width(170.0).show_ui(ui, |ui| {
-                let mut v = snap;
-                ui.selectable_value(&mut v, 65535, "Paquets complets");
-                ui.selectable_value(&mut v, 2048, "Début de chaque paquet");
-                v
-            });
-            named(&resp.response, "Taille de capture");
-            if let Some(v) = resp.inner {
-                if v != snap {
-                    shared.capture_snap.store(v, Ordering::Relaxed);
-                    if m.capture.running {
-                        // Le nouveau réglage s'applique en relançant la capture.
-                        shared.stop_capture();
-                        let s2 = shared.clone();
-                        std::thread::spawn(move || {
-                            std::thread::sleep(std::time::Duration::from_millis(400));
-                            s2.start_capture();
-                        });
+            // Le service garde toujours les paquets complets.
+            if !m.capture.service {
+                let snap = shared.capture_snap.load(Ordering::Relaxed);
+                let label = if snap >= 65535 { "Paquets complets" } else { "Début de chaque paquet" };
+                let resp = egui::ComboBox::from_id_salt("snap").selected_text(label).width(170.0).show_ui(ui, |ui| {
+                    let mut v = snap;
+                    ui.selectable_value(&mut v, 65535, "Paquets complets");
+                    ui.selectable_value(&mut v, 2048, "Début de chaque paquet");
+                    v
+                });
+                named(&resp.response, "Taille de capture");
+                if let Some(v) = resp.inner {
+                    if v != snap {
+                        shared.capture_snap.store(v, Ordering::Relaxed);
+                        if m.capture.running {
+                            // Le nouveau réglage s'applique en relançant la capture.
+                            shared.stop_capture();
+                            let s2 = shared.clone();
+                            std::thread::spawn(move || {
+                                std::thread::sleep(std::time::Duration::from_millis(400));
+                                s2.start_capture();
+                            });
+                        }
                     }
                 }
+                ui.add_space(6.0);
             }
-            ui.add_space(6.0);
             let drops = m.capture.kernel_drops;
-            ui.label(RichText::new(format!("{} paquets, {}{}", fmt_count(m.capture.seen_packets), fmt_bytes(m.capture.seen_bytes), if drops > 0 { format!(", {} perdus par le noyau", fmt_count(drops)) } else { String::new() })).color(MUTED).size(12.5));
+            ui.label(RichText::new(format!("{} paquets, {}{}", fmt_count(m.capture.seen_packets), fmt_bytes(m.capture.seen_bytes), if drops > 0 { format!(", {} perdus par le noyau", fmt_count(drops)) } else { String::new() })).color(pal().muted).size(12.5));
         });
     });
 }
@@ -214,8 +227,8 @@ fn filters(app: &mut App, ui: &mut Ui, m: &Model) {
         ui.with_layout(Layout::right_to_left(Align::Center), |ui| {
             ui.checkbox(&mut app.packets.follow_live, "Suivre en direct");
             let n = app.packets.cached.len();
-            let total = m.packets.len();
-            ui.label(RichText::new(format!("{} / {}", fmt_count(n as u64), fmt_count(total as u64))).font(mono(12.0)).color(MUTED));
+            let total = app.packets.frozen.as_ref().map_or(m.packets.len(), Vec::len);
+            ui.label(RichText::new(format!("{} / {}", fmt_count(n as u64), fmt_count(total as u64))).font(mono(12.0)).color(pal().muted));
         });
     });
 }
@@ -262,21 +275,35 @@ fn matches(app: &App, r: &PacketRow, q: &str) -> bool {
 
 fn refresh_cache(app: &mut App, m: &Model) {
     let q = app.packets.search.to_lowercase();
+    // Liste figée : les filtres s'appliquent à ce qui a été figé, rien de nouveau n'entre.
+    let (len, last_id) = match &app.packets.frozen {
+        Some(rows) => (rows.len(), rows.last().map_or(0, |r| r.id)),
+        None => (m.packets.len(), m.packets.back().map_or(0, |r| r.id)),
+    };
     let signature = format!(
-        "{}|{:?}|{}|{}|{}|{:?}|{q}",
+        "{}|{:?}|{}|{}|{}|{:?}|{q}|{}",
         app.packets.proto,
         app.iface,
         app.packets.dir as u8,
         app.packets.crypto as u8,
-        m.packets.len(),
-        app.packets.flow_filter
+        len,
+        app.packets.flow_filter,
+        app.packets.frozen.is_some()
     );
-    let last_id = m.packets.back().map(|r| r.id).unwrap_or(0);
     if (last_id, signature.clone()) == app.packets.cache_key {
         return;
     }
     app.packets.cache_key = (last_id, signature);
-    app.packets.cached = m.packets.iter().filter(|r| matches(app, r, &q)).cloned().collect();
+    app.packets.cached = match &app.packets.frozen {
+        Some(rows) => rows.iter().filter(|r| matches(app, r, &q)).cloned().collect(),
+        None => m.packets.iter().filter(|r| matches(app, r, &q)).cloned().collect(),
+    };
+}
+
+/// Date et heure d'un moment, pour ce qui peut remonter à plusieurs jours.
+pub fn time_with_date(ts_us: u64) -> String {
+    use chrono::TimeZone;
+    chrono::Local.timestamp_micros(ts_us as i64).single().map(|t| t.format("%d/%m/%Y %H:%M:%S").to_string()).unwrap_or_default()
 }
 
 fn time_label(ts_us: u64) -> String {
@@ -290,8 +317,8 @@ fn table(app: &mut App, ui: &mut Ui) {
         col("", 26.0),
         col("Interface", 78.0),
         col("Protocole", 72.0),
-        col("Source", 170.0),
-        col("Destination", 170.0),
+        col("Source", 186.0),
+        col("Destination", 186.0),
         col_r("Taille", 62.0),
         col("Programme", 110.0),
         flex("Résumé", 1.0),
@@ -310,7 +337,7 @@ fn table(app: &mut App, ui: &mut Ui) {
         hint(ui, "Aucun paquet à afficher pour le moment.");
         return;
     }
-    let follow = app.packets.follow_live && app.packets.selected.is_none();
+    let follow = app.packets.follow_live && app.packets.selected.is_none() && app.packets.frozen.is_none();
     egui::ScrollArea::vertical().auto_shrink([false, false]).stick_to_bottom(follow).show_rows(ui, 24.0, total, |ui, range| {
         ui.spacing_mut().item_spacing.y = 0.0;
         for i in range {
@@ -326,26 +353,30 @@ fn table(app: &mut App, ui: &mut Ui) {
             };
             let (src, dst) = (endpoint(p.src, p.sport), endpoint(p.dst, p.dport));
             let (sym, sym_c) = match p.dir {
-                Dir::In => (icon::ARROW_DOWN, RX),
-                Dir::Out => (icon::ARROW_UP, TX),
-                Dir::Other => (icon::ARROWS_LEFT_RIGHT, MUTED),
+                Dir::In => (icon::ARROW_DOWN, pal().rx),
+                Dir::Out => (icon::ARROW_UP, pal().tx),
+                Dir::Other => (icon::ARROWS_LEFT_RIGHT, pal().muted),
             };
             let (lock, lock_c) = crypto_symbol(p.crypto);
-            cell(ui, c[0], &time_label(p.ts_us), &mono(11.5), MUTED, false);
+            let endpoint_cell = |ui: &mut Ui, rect: egui::Rect, ip: Option<std::net::IpAddr>, text: &str| match ip {
+                Some(a) => ip_cell(ui, rect, &a.to_string(), text, &mono(11.5), pal().ink2),
+                None => cell(ui, rect, text, &mono(11.5), pal().ink2, false),
+            };
+            cell(ui, c[0], &time_label(p.ts_us), &mono(11.5), pal().muted, false);
             ui.painter().text(c[1].center(), egui::Align2::CENTER_CENTER, sym, body(13.0), sym_c);
             if compact {
-                icon_cell(ui, c[2], lock, lock_c, p.app, &body(12.0), INK);
-                cell(ui, c[3], &src, &mono(11.5), INK2, false);
-                cell(ui, c[4], &dst, &mono(11.5), INK2, false);
-                cell(ui, c[5], &p.info, &body(12.0), INK2, false);
+                icon_cell(ui, c[2], lock, lock_c, p.app, &body(12.0), pal().ink);
+                endpoint_cell(ui, c[3], p.src, &src);
+                endpoint_cell(ui, c[4], p.dst, &dst);
+                cell(ui, c[5], &p.info, &body(12.0), pal().ink2, false);
             } else {
-                cell(ui, c[2], &r.iface, &body(12.0), INK2, false);
-                icon_cell(ui, c[3], lock, lock_c, p.app, &body(12.0), INK);
-                cell(ui, c[4], &src, &mono(11.5), INK2, false);
-                cell(ui, c[5], &dst, &mono(11.5), INK2, false);
-                cell(ui, c[6], &p.orig_len.to_string(), &mono(11.5), INK2, true);
-                cell(ui, c[7], r.app.as_deref().unwrap_or(""), &body(12.0), INK2, false);
-                cell(ui, c[8], &p.info, &body(12.0), INK2, false);
+                cell(ui, c[2], &r.iface, &body(12.0), pal().ink2, false);
+                icon_cell(ui, c[3], lock, lock_c, p.app, &body(12.0), pal().ink);
+                endpoint_cell(ui, c[4], p.src, &src);
+                endpoint_cell(ui, c[5], p.dst, &dst);
+                cell(ui, c[6], &p.orig_len.to_string(), &mono(11.5), pal().ink2, true);
+                cell(ui, c[7], r.app.as_deref().unwrap_or(""), &body(12.0), pal().ink2, false);
+                cell(ui, c[8], &p.info, &body(12.0), pal().ink2, false);
             }
             if resp.clicked() {
                 app.packets.selected = if is_sel { None } else { Some(r.id) };
@@ -363,7 +394,7 @@ fn detail(app: &mut App, ui: &mut Ui, m: &Model, row: &Arc<PacketRow>) {
         ui.horizontal(|ui| {
             let (lock, c) = crypto_symbol(p.crypto);
             ui.label(RichText::new(lock).color(c).size(16.0));
-            ui.label(RichText::new(format!("{} — {}", p.app, p.crypto.label())).font(bold(14.0)).color(INK));
+            ui.label(RichText::new(format!("{} — {}", p.app, p.crypto.label())).font(bold(14.0)).color(pal().ink));
             ui.with_layout(Layout::right_to_left(Align::Center), |ui| {
                 if small_button(ui, icon::X).clicked() {
                     app.packets.selected = None;
@@ -405,21 +436,25 @@ fn packet_tab(ui: &mut Ui, row: &Arc<PacketRow>) {
     kv(ui, "Résumé", &p.info);
     for (title, fields) in packet::describe(p) {
         ui.add_space(8.0);
-        ui.label(RichText::new(title).font(bold(13.0)).color(INK));
+        ui.label(RichText::new(title).font(bold(13.0)).color(pal().ink));
         for (k, v) in fields {
-            kv(ui, &k, &v);
+            if ip_only(&v).is_some() {
+                kv_ip(ui, &k, &v);
+            } else {
+                kv(ui, &k, &v);
+            }
         }
     }
     ui.add_space(8.0);
-    ui.label(RichText::new("Octets bruts").font(bold(13.0)).color(INK));
+    ui.label(RichText::new("Octets bruts").font(bold(13.0)).color(pal().ink));
     if matches!(p.crypto, Crypto::Yes) {
         hint(ui, "Ces octets sont chiffrés : seuls les en-têtes et les étapes de négociation ont un sens sans les clés.");
     }
-    Frame::new().fill(FIELD).corner_radius(6).inner_margin(Margin::same(8)).show(ui, |ui| {
+    Frame::new().fill(pal().field).corner_radius(6).inner_margin(Margin::same(8)).show(ui, |ui| {
         ui.set_width(ui.available_width());
         // Les 16 colonnes ne tiennent pas toujours : défilement horizontal plutôt que débordement.
         egui::ScrollArea::horizontal().id_salt("hexdump").auto_shrink([false, true]).show(ui, |ui| {
-            ui.add(egui::Label::new(RichText::new(packet::hex_dump(&p.data, 4096)).font(mono(11.0)).color(INK2)).extend());
+            ui.add(egui::Label::new(RichText::new(packet::hex_dump(&p.data, 4096)).font(mono(11.0)).color(pal().ink2)).extend());
         });
     });
 }
@@ -460,8 +495,8 @@ fn conversation_tab(app: &mut App, ui: &mut Ui, m: &Model, row: &Arc<PacketRow>,
     }
     if st.truncated_capture {
         ui.horizontal(|ui| {
-            ui.label(RichText::new(icon::WARNING).color(WARNING));
-            ui.label(RichText::new("Capture limitée au début des paquets : choisissez « Paquets complets ».").color(INK2).size(12.5));
+            ui.label(RichText::new(icon::WARNING).color(pal().warning));
+            ui.label(RichText::new("Capture limitée au début des paquets : choisissez « Paquets complets ».").color(pal().ink2).size(12.5));
         });
     }
     if st.overflow {
@@ -476,38 +511,38 @@ fn conversation_tab(app: &mut App, ui: &mut Ui, m: &Model, row: &Arc<PacketRow>,
         // Le sens se lit du point de vue de ce PC.
         let (sender, receiver) = if c.from_client { (st.client, st.server) } else { (st.server, st.client) };
         let outgoing = m.local_ips.contains(&sender.ip());
-        let (sym, color, who) = if outgoing { (icon::ARROW_UP, TX, format!("Envoyé à {receiver}")) } else { (icon::ARROW_DOWN, RX, format!("Reçu de {sender}")) };
+        let (sym, color, who) = if outgoing { (icon::ARROW_UP, pal().tx, format!("Envoyé à {receiver}")) } else { (icon::ARROW_DOWN, pal().rx, format!("Reçu de {sender}")) };
         ui.horizontal(|ui| {
             ui.spacing_mut().item_spacing.x = 4.0;
             ui.label(RichText::new(sym).color(color).size(13.0));
-            ui.label(RichText::new(who).color(INK2).size(12.0));
-            ui.label(RichText::new(format!("· {}", fmt_bytes(c.data.len() as u64))).color(MUTED).size(12.0));
+            ui.label(RichText::new(who).color(pal().ink2).size(12.0));
+            ui.label(RichText::new(format!("· {}", fmt_bytes(c.data.len() as u64))).color(pal().muted).size(12.0));
             if c.decrypted {
-                ui.label(RichText::new(icon::LOCK_OPEN).color(GOOD).size(13.0));
-                ui.label(RichText::new("déchiffré").color(INK2).size(12.0));
+                ui.label(RichText::new(icon::LOCK_OPEN).color(pal().good).size(13.0));
+                ui.label(RichText::new("déchiffré").color(pal().ink2).size(12.0));
             }
         });
         let shown = &c.data[..c.data.len().min(16 * 1024)];
         let printable = shown.iter().filter(|b| matches!(**b, 0x20..=0x7e | b'\n' | b'\r' | b'\t') || **b >= 0xc0).count();
         let text = if printable as f32 / shown.len().max(1) as f32 > 0.85 { String::from_utf8_lossy(shown).replace('\r', "") } else { packet::hex_dump(shown, 2048) };
-        let fill = if outgoing { Color32::from_rgb(0x24, 0x1c, 0x18) } else { Color32::from_rgb(0x17, 0x1e, 0x27) };
+        let fill = if outgoing { pal().bubble_out } else { pal().bubble_in };
         Frame::new().fill(fill).corner_radius(6).inner_margin(Margin::same(8)).show(ui, |ui| {
             ui.set_width(ui.available_width());
-            ui.add(egui::Label::new(RichText::new(text).font(mono(11.5)).color(INK)).wrap());
+            ui.add(egui::Label::new(RichText::new(text).font(mono(11.5)).color(pal().ink)).wrap());
         });
     }
 }
 
 /// Les réglages du déchiffrement : le fichier de clés et les navigateurs à lancer.
 fn decrypt_controls(app: &mut App, ui: &mut Ui, m: &Model) {
-    Frame::new().fill(FIELD).corner_radius(6).inner_margin(Margin::same(10)).show(ui, |ui| {
+    Frame::new().fill(pal().field).corner_radius(6).inner_margin(Margin::same(10)).show(ui, |ui| {
         ui.set_width(ui.available_width());
         ui.horizontal(|ui| {
-            ui.label(RichText::new(icon::KEY).color(WARNING).size(15.0));
-            ui.label(RichText::new("Déchiffrer mon propre trafic").font(bold(13.0)).color(INK));
+            ui.label(RichText::new(icon::KEY).color(pal().warning).size(15.0));
+            ui.label(RichText::new("Déchiffrer mon propre trafic").font(bold(13.0)).color(pal().ink));
         });
         if m.keylog.path.is_none() {
-            ui.add(egui::Label::new(RichText::new("Sans les clés, le contenu reste illisible. NetBuster peut lancer votre navigateur dans un profil séparé qui note ses clés de session, pour lire uniquement ce trafic. Ces clés donnent accès aux échanges enregistrés : gardez ce fichier pour vous.").color(INK2).size(12.5)).wrap());
+            ui.add(egui::Label::new(RichText::new("Sans les clés, le contenu reste illisible. NetBuster peut lancer votre navigateur dans un profil séparé qui note ses clés de session, pour lire uniquement ce trafic. Ces clés donnent accès aux échanges enregistrés : gardez ce fichier pour vous.").color(pal().ink2).size(12.5)).wrap());
             if primary_button(ui, "Activer le déchiffrement").clicked() {
                 // Le modèle est verrouillé pendant le dessin : l'activation se fait juste après.
                 let shared = app.shared.clone();
@@ -520,7 +555,7 @@ fn decrypt_controls(app: &mut App, ui: &mut Ui, m: &Model) {
             }
             return;
         }
-        ui.add(egui::Label::new(RichText::new(format!("{} sessions avec clés. Les connexions ouvertes avant l'activation restent illisibles.", m.keylog.keys.len())).color(INK2).size(12.5)).wrap());
+        ui.add(egui::Label::new(RichText::new(format!("{} sessions avec clés. Les connexions ouvertes avant l'activation restent illisibles.", m.keylog.keys.len())).color(pal().ink2).size(12.5)).wrap());
         let mut seen = vec![];
         ui.horizontal_wrapped(|ui| {
             for (name, prog, firefox) in BROWSERS {

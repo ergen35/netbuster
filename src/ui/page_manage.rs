@@ -10,7 +10,7 @@ use eframe::egui::{self, Align, Frame, Layout, Margin, RichText, Ui};
 use egui_phosphor::regular as icon;
 
 fn admin_gate(app: &mut App, ui: &mut Ui, text: &str) {
-    if notice(ui, icon::LOCK, WARNING, "Droits administrateur nécessaires", text, Some("Passer administrateur")) {
+    if notice(ui, icon::LOCK, pal().warning, "Droits administrateur nécessaires", text, Some("Passer administrateur")) {
         app.shared.enable_admin();
     }
 }
@@ -25,10 +25,10 @@ fn policy_fr(p: &str) -> &str {
 
 fn target_style(t: &str) -> (&'static str, egui::Color32) {
     match t {
-        "ACCEPT" => (icon::CHECK_CIRCLE, GOOD),
-        "DROP" | "REJECT" => (icon::PROHIBIT, CRITICAL_TEXT),
-        "" => (icon::MINUS, MUTED),
-        _ => (icon::CARET_RIGHT, INK2),
+        "ACCEPT" => (icon::CHECK_CIRCLE, pal().good),
+        "DROP" | "REJECT" => (icon::PROHIBIT, pal().critical_text),
+        "" => (icon::MINUS, pal().muted),
+        _ => (icon::CARET_RIGHT, pal().ink2),
     }
 }
 
@@ -51,15 +51,15 @@ pub fn firewall(app: &mut App, ui: &mut Ui) {
         card(ui, |ui| {
             ui.set_width(ui.available_width());
             section_title(ui, "Ce qui est visible sans droits");
-            status_badge(ui, icon::SHIELD_CHECK, if data.ufw_conf_enabled { GOOD } else { MUTED }, if data.ufw_conf_enabled { "UFW est activé dans sa configuration" } else { "UFW n'est pas activé dans sa configuration" });
+            status_badge(ui, icon::SHIELD_CHECK, if data.ufw_conf_enabled { pal().good } else { pal().muted }, if data.ufw_conf_enabled { "UFW est activé dans sa configuration" } else { "UFW n'est pas activé dans sa configuration" });
             hint(ui, "Les politiques, les règles IP Tables et nftables s'affichent ici une fois le mode administrateur activé.");
         });
         return;
     }
     if let Some(e) = &data.error {
         ui.horizontal(|ui| {
-            ui.label(RichText::new(icon::WARNING).color(WARNING));
-            ui.add(egui::Label::new(RichText::new(e).color(INK2).size(12.5)).wrap());
+            ui.label(RichText::new(icon::WARNING).color(pal().warning));
+            ui.add(egui::Label::new(RichText::new(e).color(pal().ink2).size(12.5)).wrap());
         });
     }
 
@@ -75,7 +75,7 @@ pub fn firewall(app: &mut App, ui: &mut Ui) {
                 ui.set_width(ui.available_width());
                 section_title(ui, "Règles nftables (lecture)");
                 hint(ui, "C'est la couche la plus basse du pare-feu Linux : UFW, Docker et IP Tables écrivent ici.");
-                ui.add(egui::Label::new(RichText::new(if data.nft.trim().is_empty() { "Aucune règle." } else { data.nft.as_str() }).font(mono(11.5)).color(INK2)).extend());
+                ui.add(egui::Label::new(RichText::new(if data.nft.trim().is_empty() { "Aucune règle." } else { data.nft.as_str() }).font(mono(11.5)).color(pal().ink2)).extend());
             });
         }
     });
@@ -87,9 +87,9 @@ fn ufw_tab(app: &mut App, ui: &mut Ui, data: &manage::FirewallData) {
         ui.horizontal(|ui| {
             section_title(ui, "Pare-feu UFW");
             if data.ufw.active {
-                status_badge(ui, icon::CHECK_CIRCLE, GOOD, "Actif");
+                status_badge(ui, icon::CHECK_CIRCLE, pal().good, "Actif");
             } else {
-                status_badge(ui, icon::MINUS_CIRCLE, WARNING, "Inactif");
+                status_badge(ui, icon::MINUS_CIRCLE, pal().warning, "Inactif");
             }
             ui.with_layout(Layout::right_to_left(Align::Center), |ui| {
                 if data.ufw.active {
@@ -104,9 +104,9 @@ fn ufw_tab(app: &mut App, ui: &mut Ui, data: &manage::FirewallData) {
         let defaults = manage::ufw_defaults_fr(&data.ufw.defaults);
         if !defaults.is_empty() {
             ui.horizontal(|ui| {
-                ui.label(RichText::new("Politiques par défaut").color(MUTED).size(12.5));
+                ui.label(RichText::new("Politiques par défaut").color(pal().muted).size(12.5));
                 for (what, action) in &defaults {
-                    let (sym, c) = if action == "Autorisé" { (icon::CHECK_CIRCLE, GOOD) } else if action == "Désactivé" { (icon::MINUS_CIRCLE, MUTED) } else { (icon::PROHIBIT, CRITICAL_TEXT) };
+                    let (sym, c) = if action == "Autorisé" { (icon::CHECK_CIRCLE, pal().good) } else if action == "Désactivé" { (icon::MINUS_CIRCLE, pal().muted) } else { (icon::PROHIBIT, pal().critical_text) };
                     status_badge(ui, sym, c, &format!("{what} : {action}"));
                 }
             });
@@ -117,7 +117,7 @@ fn ufw_tab(app: &mut App, ui: &mut Ui, data: &manage::FirewallData) {
     card(ui, |ui| {
         ui.set_width(ui.available_width());
         ui.horizontal(|ui| {
-            ui.label(RichText::new("Nouvelle règle").font(bold(13.5)).color(INK));
+            ui.label(RichText::new("Nouvelle règle").font(bold(13.5)).color(pal().ink));
             ui.add(egui::TextEdit::singleline(&mut app.fw.ufw_port).hint_text("Port").desired_width(90.0));
             chips(ui, &mut app.fw.ufw_proto, &[("tcp".to_string(), "TCP"), ("udp".to_string(), "UDP")]);
             chips(ui, &mut app.fw.ufw_allow, &[(true, "Autoriser"), (false, "Bloquer")]);
@@ -132,7 +132,7 @@ fn ufw_tab(app: &mut App, ui: &mut Ui, data: &manage::FirewallData) {
                 }
             }
             if let Some(e) = &app.fw.error {
-                ui.label(RichText::new(e).color(CRITICAL_TEXT).size(12.5));
+                ui.label(RichText::new(e).color(pal().critical_text).size(12.5));
             }
         });
         ui.add_space(4.0);
@@ -145,12 +145,12 @@ fn ufw_tab(app: &mut App, ui: &mut Ui, data: &manage::FirewallData) {
         for r in &data.ufw.rules {
             let (rect, _) = table_row(ui, 30.0, false, &format!("Règle {}", r.num));
             let c = col_rects(rect, &cols);
-            cell(ui, c[0], &r.num.to_string(), &mono(12.0), INK2, true);
-            cell(ui, c[1], &r.to, &mono(12.0), INK, false);
+            cell(ui, c[0], &r.num.to_string(), &mono(12.0), pal().ink2, true);
+            cell(ui, c[1], &r.to, &mono(12.0), pal().ink, false);
             let allow = r.action.starts_with("ALLOW");
             let label = r.action.replace("ALLOW", "Autorisé").replace("DENY", "Bloqué").replace("REJECT", "Refusé").replace(" IN", " entrant").replace(" OUT", " sortant");
-            icon_cell(ui, c[2], if allow { icon::CHECK_CIRCLE } else { icon::PROHIBIT }, if allow { GOOD } else { CRITICAL_TEXT }, &label, &body(12.0), INK2);
-            cell(ui, c[3], &r.from.replace("Anywhere", "Partout"), &mono(12.0), INK2, false);
+            icon_cell(ui, c[2], if allow { icon::CHECK_CIRCLE } else { icon::PROHIBIT }, if allow { pal().good } else { pal().critical_text }, &label, &body(12.0), pal().ink2);
+            cell(ui, c[3], &r.from.replace("Anywhere", "Partout"), &mono(12.0), pal().ink2, false);
             let num = r.num.to_string();
             let to = r.to.clone();
             in_cell(ui, c[4], |ui| {
@@ -186,21 +186,21 @@ fn iptables_tab(app: &mut App, ui: &mut Ui, data: &manage::FirewallData) {
 fn rule_form(app: &mut App, ui: &mut Ui) {
     card(ui, |ui| {
         ui.set_width(ui.available_width());
-        ui.label(RichText::new("Ajouter une règle").font(bold(13.5)).color(INK));
+        ui.label(RichText::new("Ajouter une règle").font(bold(13.5)).color(pal().ink));
         ui.horizontal(|ui| {
             ui.vertical(|ui| {
                 ui.spacing_mut().item_spacing.y = 3.0;
-                ui.label(RichText::new("Sens").color(MUTED).size(12.0));
+                ui.label(RichText::new("Sens").color(pal().muted).size(12.0));
                 chips(ui, &mut app.fw.form.chain, &[("INPUT".to_string(), "Entrant"), ("OUTPUT".to_string(), "Sortant"), ("FORWARD".to_string(), "Routé")]);
             });
             ui.vertical(|ui| {
                 ui.spacing_mut().item_spacing.y = 3.0;
-                ui.label(RichText::new("Décision").color(MUTED).size(12.0));
+                ui.label(RichText::new("Décision").color(pal().muted).size(12.0));
                 chips(ui, &mut app.fw.form.action, &[("ACCEPT".to_string(), "Autoriser"), ("DROP".to_string(), "Bloquer"), ("REJECT".to_string(), "Refuser")]);
             });
             ui.vertical(|ui| {
                 ui.spacing_mut().item_spacing.y = 3.0;
-                ui.label(RichText::new("Protocole").color(MUTED).size(12.0));
+                ui.label(RichText::new("Protocole").color(pal().muted).size(12.0));
                 chips(ui, &mut app.fw.form.proto, &[("tcp".to_string(), "TCP"), ("udp".to_string(), "UDP"), ("icmp".to_string(), "ICMP"), ("tous".to_string(), "Tous")]);
             });
             labeled_field(ui, "Port", &mut app.fw.form.port, 70.0, "443");
@@ -221,7 +221,7 @@ fn rule_form(app: &mut App, ui: &mut Ui) {
             });
         });
         if let Some(e) = &app.fw.error {
-            ui.label(RichText::new(e).color(CRITICAL_TEXT).size(12.5));
+            ui.label(RichText::new(e).color(pal().critical_text).size(12.5));
         }
     });
 }
@@ -231,10 +231,10 @@ fn chain_card(app: &mut App, ui: &mut Ui, ch: &FwChain, prog: &str) {
     card(ui, |ui| {
         ui.set_width(ui.available_width());
         ui.horizontal(|ui| {
-            ui.label(RichText::new(&ch.name).font(bold(13.5)).color(INK));
+            ui.label(RichText::new(&ch.name).font(bold(13.5)).color(pal().ink));
             if let Some(p) = &ch.policy {
-                ui.label(RichText::new("Politique :").color(MUTED).size(12.5));
-                ui.label(RichText::new(policy_fr(p)).color(INK).size(12.5));
+                ui.label(RichText::new("Politique :").color(pal().muted).size(12.5));
+                ui.label(RichText::new(policy_fr(p)).color(pal().ink).size(12.5));
                 ui.with_layout(Layout::right_to_left(Align::Center), |ui| {
                     let other = if p == "ACCEPT" { "DROP" } else { "ACCEPT" };
                     let label = if other == "DROP" { "Passer à : tout bloquer" } else { "Passer à : tout accepter" };
@@ -251,7 +251,7 @@ fn chain_card(app: &mut App, ui: &mut Ui, ch: &FwChain, prog: &str) {
                     }
                 });
             } else {
-                ui.label(RichText::new("Chaîne personnalisée").color(MUTED).size(12.5));
+                ui.label(RichText::new("Chaîne personnalisée").color(pal().muted).size(12.5));
             }
         });
         if ch.rules.is_empty() {
@@ -275,17 +275,17 @@ fn chain_card(app: &mut App, ui: &mut Ui, ch: &FwChain, prog: &str) {
         for r in &ch.rules {
             let (rect, _) = table_row(ui, 26.0, false, &format!("{} règle {}", ch.name, r.num));
             let c = col_rects(rect, &cols);
-            cell(ui, c[0], &r.num.to_string(), &mono(11.5), INK2, true);
+            cell(ui, c[0], &r.num.to_string(), &mono(11.5), pal().ink2, true);
             let (sym, col_) = target_style(&r.target);
-            icon_cell(ui, c[1], sym, col_, &r.target, &body(12.0), INK);
-            cell(ui, c[2], &r.proto, &mono(11.5), INK2, false);
-            cell(ui, c[3], &r.in_if, &mono(11.5), INK2, false);
-            cell(ui, c[4], &r.out_if, &mono(11.5), INK2, false);
-            cell(ui, c[5], &r.source, &mono(11.5), INK2, false);
-            cell(ui, c[6], &r.dest, &mono(11.5), INK2, false);
-            cell(ui, c[7], &r.extra, &mono(11.5), INK2, false);
-            cell(ui, c[8], &fmt_count(r.packets), &mono(11.5), INK2, true);
-            cell(ui, c[9], &fmt_bytes(r.bytes), &mono(11.5), INK2, true);
+            icon_cell(ui, c[1], sym, col_, &r.target, &body(12.0), pal().ink);
+            cell(ui, c[2], &r.proto, &mono(11.5), pal().ink2, false);
+            cell(ui, c[3], &r.in_if, &mono(11.5), pal().ink2, false);
+            cell(ui, c[4], &r.out_if, &mono(11.5), pal().ink2, false);
+            cell(ui, c[5], &r.source, &mono(11.5), pal().ink2, false);
+            cell(ui, c[6], &r.dest, &mono(11.5), pal().ink2, false);
+            cell(ui, c[7], &r.extra, &mono(11.5), pal().ink2, false);
+            cell(ui, c[8], &fmt_count(r.packets), &mono(11.5), pal().ink2, true);
+            cell(ui, c[9], &fmt_bytes(r.bytes), &mono(11.5), pal().ink2, true);
             let num = r.num.to_string();
             in_cell(ui, c[10], |ui| {
                 if small_button(ui, icon::TRASH).on_hover_text("Retirer cette règle").clicked() {
@@ -316,8 +316,8 @@ pub fn config(app: &mut App, ui: &mut Ui) {
         }
         if let Some(e) = &app.cfg.error {
             ui.horizontal(|ui| {
-                ui.label(RichText::new(icon::WARNING).color(CRITICAL_TEXT));
-                ui.label(RichText::new(e).color(CRITICAL_TEXT));
+                ui.label(RichText::new(icon::WARNING).color(pal().critical_text));
+                ui.label(RichText::new(e).color(pal().critical_text));
             });
         }
         card(ui, |ui| {
@@ -329,15 +329,19 @@ pub fn config(app: &mut App, ui: &mut Ui) {
                 let selected = app.cfg.selected_iface.as_deref() == Some(i.name.as_str());
                 let (rect, resp) = table_row(ui, 30.0, selected, &i.name);
                 let c = col_rects(rect, &cols);
-                cell(ui, c[0], &i.name, &body(13.0), INK, false);
-                cell(ui, c[1], i.kind.label(), &body(12.0), INK2, false);
-                let (sym, col_, label) = if i.is_up() { (icon::CHECK_CIRCLE, GOOD, "Active") } else { (icon::MINUS_CIRCLE, MUTED, "Inactive") };
-                icon_cell(ui, c[2], sym, col_, label, &body(12.0), INK2);
+                cell(ui, c[0], &i.name, &body(13.0), pal().ink, false);
+                cell(ui, c[1], i.kind.label(), &body(12.0), pal().ink2, false);
+                let (sym, col_, label) = if i.is_up() { (icon::CHECK_CIRCLE, pal().good, "Active") } else { (icon::MINUS_CIRCLE, pal().muted, "Inactive") };
+                icon_cell(ui, c[2], sym, col_, label, &body(12.0), pal().ink2);
                 let addrs = i.addrs.iter().map(|(a, p)| format!("{a}/{p}")).collect::<Vec<_>>().join("  ");
-                cell(ui, c[3], &addrs, &mono(11.5), INK2, false);
-                cell(ui, c[4], &i.mac, &mono(11.5), INK2, false);
-                cell(ui, c[5], &i.mtu.to_string(), &mono(11.5), INK2, true);
-                cell(ui, c[6], &i.speed_mbps.map(|s| if s >= 1000 { format!("{} Gbit/s", s / 1000) } else { format!("{s} Mbit/s") }).unwrap_or_default(), &mono(11.5), INK2, true);
+                // Plusieurs adresses sur une ligne : l'IPv4 d'abord ; les autres ont leur bouton en dessous.
+                match i.addrs.iter().find(|a| a.0.is_ipv4()).or(i.addrs.first()) {
+                    Some((a, _)) => ip_cell(ui, c[3], &a.to_string(), &addrs, &mono(11.5), pal().ink2),
+                    None => cell(ui, c[3], &addrs, &mono(11.5), pal().ink2, false),
+                }
+                cell(ui, c[4], &i.mac, &mono(11.5), pal().ink2, false);
+                cell(ui, c[5], &i.mtu.to_string(), &mono(11.5), pal().ink2, true);
+                cell(ui, c[6], &i.speed_mbps.map(|s| if s >= 1000 { format!("{} Gbit/s", s / 1000) } else { format!("{s} Mbit/s") }).unwrap_or_default(), &mono(11.5), pal().ink2, true);
                 if resp.clicked() {
                     app.cfg.selected_iface = if selected { None } else { Some(i.name.clone()) };
                     app.cfg.mtu = i.mtu.to_string();
@@ -345,10 +349,10 @@ pub fn config(app: &mut App, ui: &mut Ui) {
             }
             if let Some(i) = app.cfg.selected_iface.clone().and_then(|n| ifaces.iter().find(|x| x.name == n)) {
                 ui.add_space(8.0);
-                Frame::new().fill(FIELD).corner_radius(8).inner_margin(Margin::same(10)).show(ui, |ui| {
+                Frame::new().fill(pal().field).corner_radius(8).inner_margin(Margin::same(10)).show(ui, |ui| {
                     ui.set_width(ui.available_width());
                     ui.horizontal(|ui| {
-                        ui.label(RichText::new(format!("Modifier {}", i.name)).font(bold(13.5)).color(INK));
+                        ui.label(RichText::new(format!("Modifier {}", i.name)).font(bold(13.5)).color(pal().ink));
                         if i.is_up() {
                             if ui.button("Désactiver").clicked() {
                                 app.ask(manage::link_action(&i.name, false));
@@ -357,7 +361,7 @@ pub fn config(app: &mut App, ui: &mut Ui) {
                             app.ask(manage::link_action(&i.name, true));
                         }
                         ui.add_space(12.0);
-                        ui.label(RichText::new("MTU").color(MUTED).size(12.5));
+                        ui.label(RichText::new("MTU").color(pal().muted).size(12.5));
                         ui.add(egui::TextEdit::singleline(&mut app.cfg.mtu).desired_width(64.0));
                         if ui.button("Appliquer").clicked() {
                             match manage::mtu_action(&i.name, &app.cfg.mtu) {
@@ -369,7 +373,7 @@ pub fn config(app: &mut App, ui: &mut Ui) {
                             }
                         }
                         ui.add_space(12.0);
-                        ui.label(RichText::new("Adresse").color(MUTED).size(12.5));
+                        ui.label(RichText::new("Adresse").color(pal().muted).size(12.5));
                         ui.add(egui::TextEdit::singleline(&mut app.cfg.addr).hint_text("192.168.1.50/24").desired_width(150.0));
                         if ui.button("Ajouter").clicked() {
                             match manage::addr_action(&i.name, &app.cfg.addr, true) {
@@ -384,6 +388,7 @@ pub fn config(app: &mut App, ui: &mut Ui) {
                     ui.horizontal_wrapped(|ui| {
                         for (a, p) in &i.addrs {
                             let cidr = format!("{a}/{p}");
+                            copy_inline(ui, &a.to_string());
                             if small_button(ui, &format!("{cidr}  {}", icon::X)).on_hover_text("Retirer cette adresse").clicked() {
                                 if let Ok(act) = manage::addr_action(&i.name, &cidr, false) {
                                     app.ask(act);
@@ -421,11 +426,14 @@ pub fn config(app: &mut App, ui: &mut Ui) {
                 let (rect, _) = table_row(ui, 26.0, false, &r.dst);
                 let c = col_rects(rect, &cols);
                 let dst = if r.dst == "default" { "Par défaut (Internet)" } else { r.dst.as_str() };
-                cell(ui, c[0], dst, &mono(11.5), INK, false);
-                cell(ui, c[1], &r.via, &mono(11.5), INK2, false);
-                cell(ui, c[2], &r.dev, &body(12.0), INK2, false);
-                cell(ui, c[3], &r.proto, &body(12.0), INK2, false);
-                cell(ui, c[4], &r.metric, &mono(11.5), INK2, true);
+                cell(ui, c[0], dst, &mono(11.5), pal().ink, false);
+                match ip_only(&r.via) {
+                    Some(ip) => ip_cell(ui, c[1], &ip, &r.via, &mono(11.5), pal().ink2),
+                    None => cell(ui, c[1], &r.via, &mono(11.5), pal().ink2, false),
+                }
+                cell(ui, c[2], &r.dev, &body(12.0), pal().ink2, false);
+                cell(ui, c[3], &r.proto, &body(12.0), pal().ink2, false);
+                cell(ui, c[4], &r.metric, &mono(11.5), pal().ink2, true);
                 let row = r.clone();
                 in_cell(ui, c[5], |ui| {
                     if small_button(ui, icon::TRASH).on_hover_text("Retirer cette route").clicked() {
@@ -453,8 +461,8 @@ pub fn config(app: &mut App, ui: &mut Ui) {
                     for con in shown {
                         let (rect, _) = table_row(ui, 28.0, false, &con.name);
                         let c = col_rects(rect, &cols);
-                        icon_cell(ui, c[0], if con.active { icon::CHECK_CIRCLE } else { icon::MINUS_CIRCLE }, if con.active { GOOD } else { MUTED }, &con.name, &body(12.5), INK);
-                        cell(ui, c[1], &con.device, &body(12.0), INK2, false);
+                        icon_cell(ui, c[0], if con.active { icon::CHECK_CIRCLE } else { icon::MINUS_CIRCLE }, if con.active { pal().good } else { pal().muted }, &con.name, &body(12.5), pal().ink);
+                        cell(ui, c[1], &con.device, &body(12.0), pal().ink2, false);
                         let conn = con.clone();
                         in_cell(ui, c[2], |ui| {
                             if small_button(ui, if conn.active { "Couper" } else { "Activer" }).clicked() {
@@ -512,9 +520,9 @@ pub fn config(app: &mut App, ui: &mut Ui) {
                     for n in data.neighbors.iter().filter(|n| !n.mac.is_empty()).take(30) {
                         let (rect, _) = table_row(ui, 24.0, false, &n.ip);
                         let c = col_rects(rect, &cols);
-                        cell(ui, c[0], &n.ip, &mono(11.5), INK, false);
-                        cell(ui, c[1], &n.dev, &body(12.0), INK2, false);
-                        cell(ui, c[2], &n.mac, &mono(11.5), INK2, false);
+                        cell(ui, c[0], &n.ip, &mono(11.5), pal().ink, false);
+                        cell(ui, c[1], &n.dev, &body(12.0), pal().ink2, false);
+                        cell(ui, c[2], &n.mac, &mono(11.5), pal().ink2, false);
                         let state = match n.state.as_str() {
                             "REACHABLE" => "Joignable",
                             "STALE" | "DELAY" | "PROBE" => "À vérifier",
@@ -522,7 +530,7 @@ pub fn config(app: &mut App, ui: &mut Ui) {
                             "FAILED" => "Échec",
                             o => o,
                         };
-                        cell(ui, c[3], state, &body(12.0), INK2, false);
+                        cell(ui, c[3], state, &body(12.0), pal().ink2, false);
                     }
                 });
             });
@@ -535,7 +543,7 @@ pub fn config(app: &mut App, ui: &mut Ui) {
 fn yes_no(ui: &mut Ui, label: &str, value: &mut String) {
     ui.vertical(|ui| {
         ui.spacing_mut().item_spacing.y = 3.0;
-        ui.label(RichText::new(label).color(MUTED).size(12.0));
+        ui.label(RichText::new(label).color(pal().muted).size(12.0));
         chips(ui, value, &[("yes".to_string(), "Oui"), ("no".to_string(), "Non")]);
     });
 }
@@ -590,14 +598,14 @@ fn server_card(app: &mut App, ui: &mut Ui, data: &manage::SshData) {
         ui.horizontal(|ui| {
             section_title(ui, "Serveur SSH de ce PC");
             if !data.server_installed {
-                status_badge(ui, icon::MINUS_CIRCLE, MUTED, "Non installé");
+                status_badge(ui, icon::MINUS_CIRCLE, pal().muted, "Non installé");
             } else if data.active {
-                status_badge(ui, icon::CHECK_CIRCLE, GOOD, &format!("En service, port {}", data.ports.iter().map(u16::to_string).collect::<Vec<_>>().join(", ")));
+                status_badge(ui, icon::CHECK_CIRCLE, pal().good, &format!("En service, port {}", data.ports.iter().map(u16::to_string).collect::<Vec<_>>().join(", ")));
             } else {
-                status_badge(ui, icon::MINUS_CIRCLE, MUTED, "Arrêté");
+                status_badge(ui, icon::MINUS_CIRCLE, pal().muted, "Arrêté");
             }
             if data.server_installed {
-                status_badge(ui, icon::POWER, if data.enabled { GOOD } else { MUTED }, if data.enabled { "Lancé au démarrage" } else { "Pas lancé au démarrage" });
+                status_badge(ui, icon::POWER, if data.enabled { pal().good } else { pal().muted }, if data.enabled { "Lancé au démarrage" } else { "Pas lancé au démarrage" });
             }
             ui.with_layout(Layout::right_to_left(Align::Center), |ui| {
                 if !data.server_installed {
@@ -639,7 +647,7 @@ fn server_card(app: &mut App, ui: &mut Ui, data: &manage::SshData) {
             labeled_field(ui, "Port", &mut app.ssh.port, 70.0, "22");
             ui.vertical(|ui| {
                 ui.spacing_mut().item_spacing.y = 3.0;
-                ui.label(RichText::new("Connexion en root").color(MUTED).size(12.0));
+                ui.label(RichText::new("Connexion en root").color(pal().muted).size(12.0));
                 chips(ui, &mut app.ssh.root_login, &[("no".to_string(), "Interdite"), ("prohibit-password".to_string(), "Clé seulement"), ("yes".to_string(), "Autorisée")]);
             });
             yes_no(ui, "Mot de passe", &mut app.ssh.password);
@@ -674,15 +682,15 @@ fn server_card(app: &mut App, ui: &mut Ui, data: &manage::SshData) {
             });
         });
         if let Some(e) = &app.ssh.error {
-            ui.label(RichText::new(e).color(CRITICAL_TEXT).size(12.5));
+            ui.label(RichText::new(e).color(pal().critical_text).size(12.5));
         }
         if !data.settings_effective {
             hint(ui, "Valeurs lues dans les fichiers de configuration. Le mode administrateur montre celles réellement appliquées.");
         }
         if !data.dropin_supported {
             ui.horizontal(|ui| {
-                ui.label(RichText::new(icon::WARNING).color(WARNING));
-                ui.label(RichText::new("Ce serveur ne lit pas le dossier sshd_config.d : les réglages appliqués ici peuvent rester sans effet.").color(INK2).size(12.5));
+                ui.label(RichText::new(icon::WARNING).color(pal().warning));
+                ui.label(RichText::new("Ce serveur ne lit pas le dossier sshd_config.d : les réglages appliqués ici peuvent rester sans effet.").color(pal().ink2).size(12.5));
             });
         }
     });
@@ -707,12 +715,12 @@ fn sessions(app: &mut App, ui: &mut Ui, data: &manage::SshData) {
             for f in &incoming {
                 let (rect, _) = table_row(ui, 30.0, false, &f.key.remote.to_string());
                 let c = col_rects(rect, &cols);
-                cell(ui, c[0], &f.key.remote.to_string(), &mono(12.0), INK, false);
-                cell(ui, c[1], &super::page_monitor::provider_label(app, &m, f), &body(12.5), INK2, false);
-                cell(ui, c[2], &f.app_name(), &body(12.5), INK2, false);
-                cell(ui, c[3], &f.pid.map(|p| p.to_string()).unwrap_or_else(|| "—".into()), &mono(12.0), INK2, true);
-                cell(ui, c[4], &fmt_bytes(f.rx_total), &mono(11.5), INK2, true);
-                cell(ui, c[5], &fmt_bytes(f.tx_total), &mono(11.5), INK2, true);
+                ip_cell(ui, c[0], &f.key.remote.ip().to_string(), &f.key.remote.to_string(), &mono(12.0), pal().ink);
+                cell(ui, c[1], &super::page_monitor::provider_label(app, &m, f), &body(12.5), pal().ink2, false);
+                cell(ui, c[2], &f.app_name(), &body(12.5), pal().ink2, false);
+                cell(ui, c[3], &f.pid.map(|p| p.to_string()).unwrap_or_else(|| "—".into()), &mono(12.0), pal().ink2, true);
+                cell(ui, c[4], &fmt_bytes(f.rx_total), &mono(11.5), pal().ink2, true);
+                cell(ui, c[5], &fmt_bytes(f.tx_total), &mono(11.5), pal().ink2, true);
                 let (local, remote, name) = (f.key.local.to_string(), f.key.remote.to_string(), f.app_name());
                 in_cell(ui, c[6], |ui| {
                     if small_button(ui, "Déconnecter").clicked() {
@@ -731,12 +739,12 @@ fn sessions(app: &mut App, ui: &mut Ui, data: &manage::SshData) {
             for f in &outgoing {
                 let (rect, _) = table_row(ui, 30.0, false, &f.key.remote.to_string());
                 let c = col_rects(rect, &cols);
-                cell(ui, c[0], &f.key.remote.to_string(), &mono(12.0), INK, false);
-                cell(ui, c[1], &super::page_monitor::provider_label(app, &m, f), &body(12.5), INK2, false);
-                cell(ui, c[2], &f.app_name(), &body(12.5), INK2, false);
-                cell(ui, c[3], &f.pid.map(|p| p.to_string()).unwrap_or_else(|| "—".into()), &mono(12.0), INK2, true);
-                cell(ui, c[4], &fmt_bytes(f.rx_total), &mono(11.5), INK2, true);
-                cell(ui, c[5], &fmt_bytes(f.tx_total), &mono(11.5), INK2, true);
+                ip_cell(ui, c[0], &f.key.remote.ip().to_string(), &f.key.remote.to_string(), &mono(12.0), pal().ink);
+                cell(ui, c[1], &super::page_monitor::provider_label(app, &m, f), &body(12.5), pal().ink2, false);
+                cell(ui, c[2], &f.app_name(), &body(12.5), pal().ink2, false);
+                cell(ui, c[3], &f.pid.map(|p| p.to_string()).unwrap_or_else(|| "—".into()), &mono(12.0), pal().ink2, true);
+                cell(ui, c[4], &fmt_bytes(f.rx_total), &mono(11.5), pal().ink2, true);
+                cell(ui, c[5], &fmt_bytes(f.tx_total), &mono(11.5), pal().ink2, true);
                 let (pid, name) = (f.pid, f.app_name());
                 in_cell(ui, c[6], |ui| {
                     if let Some(pid) = pid {
@@ -762,9 +770,9 @@ fn keys(app: &mut App, ui: &mut Ui, data: &manage::SshData) {
             for k in &data.authorized {
                 let (rect, _) = table_row(ui, 28.0, false, &k.fingerprint);
                 let c = col_rects(rect, &cols);
-                cell(ui, c[0], &k.kind, &mono(11.5), INK2, false);
-                cell(ui, c[1], &k.comment, &body(12.5), INK, false);
-                cell(ui, c[2], &k.fingerprint, &mono(11.5), INK2, false);
+                cell(ui, c[0], &k.kind, &mono(11.5), pal().ink2, false);
+                cell(ui, c[1], &k.comment, &body(12.5), pal().ink, false);
+                cell(ui, c[2], &k.fingerprint, &mono(11.5), pal().ink2, false);
                 in_cell(ui, c[3], |ui| {
                     if small_button(ui, "Retirer").clicked() {
                         app.ask(manage::remove_authorized_action(&data.authorized, k));
@@ -787,7 +795,7 @@ fn keys(app: &mut App, ui: &mut Ui, data: &manage::SshData) {
             }
         });
         if let Some(e) = &app.ssh.error {
-            ui.label(RichText::new(e).color(CRITICAL_TEXT).size(12.5));
+            ui.label(RichText::new(e).color(pal().critical_text).size(12.5));
         }
     });
     ui.add_space(4.0);
@@ -800,14 +808,14 @@ fn keys(app: &mut App, ui: &mut Ui, data: &manage::SshData) {
         for (file, k) in &data.own_keys {
             let (rect, _) = table_row(ui, 26.0, false, file);
             let c = col_rects(rect, &cols);
-            cell(ui, c[0], file, &body(12.5), INK, false);
-            cell(ui, c[1], &k.kind, &mono(11.5), INK2, false);
-            cell(ui, c[2], &k.comment, &body(12.5), INK2, false);
-            cell(ui, c[3], &k.fingerprint, &mono(11.5), INK2, false);
+            cell(ui, c[0], file, &body(12.5), pal().ink, false);
+            cell(ui, c[1], &k.kind, &mono(11.5), pal().ink2, false);
+            cell(ui, c[2], &k.comment, &body(12.5), pal().ink2, false);
+            cell(ui, c[3], &k.fingerprint, &mono(11.5), pal().ink2, false);
         }
         if !data.agent_keys.is_empty() {
             ui.add_space(6.0);
-            ui.label(RichText::new(format!("Chargées dans l'agent SSH : {}", data.agent_keys.len())).color(INK2).size(12.5));
+            ui.label(RichText::new(format!("Chargées dans l'agent SSH : {}", data.agent_keys.len())).color(pal().ink2).size(12.5));
         }
     });
 }
@@ -824,10 +832,10 @@ fn hosts(ui: &mut Ui, data: &manage::SshData) {
             for h in &data.hosts {
                 let (rect, _) = table_row(ui, 26.0, false, &h.alias);
                 let c = col_rects(rect, &cols);
-                cell(ui, c[0], &h.alias, &body(12.5), INK, false);
-                cell(ui, c[1], &h.hostname, &mono(11.5), INK2, false);
-                cell(ui, c[2], &h.user, &body(12.5), INK2, false);
-                cell(ui, c[3], &h.port, &mono(11.5), INK2, true);
+                cell(ui, c[0], &h.alias, &body(12.5), pal().ink, false);
+                cell(ui, c[1], &h.hostname, &mono(11.5), pal().ink2, false);
+                cell(ui, c[2], &h.user, &body(12.5), pal().ink2, false);
+                cell(ui, c[3], &h.port, &mono(11.5), pal().ink2, true);
             }
         }
     });
@@ -844,8 +852,8 @@ fn hosts(ui: &mut Ui, data: &manage::SshData) {
         for h in data.known_hosts.iter().filter(|h| !h.hashed).take(200) {
             let (rect, _) = table_row(ui, 24.0, false, &h.host);
             let c = col_rects(rect, &cols);
-            cell(ui, c[0], &h.host, &mono(11.5), INK2, false);
-            cell(ui, c[1], &h.kind, &mono(11.5), INK2, false);
+            cell(ui, c[0], &h.host, &mono(11.5), pal().ink2, false);
+            cell(ui, c[1], &h.kind, &mono(11.5), pal().ink2, false);
         }
     });
 }
@@ -871,11 +879,14 @@ fn logins(app: &mut App, ui: &mut Ui, data: &manage::SshData) {
         for e in &data.logins {
             let (rect, _) = table_row(ui, 26.0, false, &e.from);
             let c = col_rects(rect, &cols);
-            cell(ui, c[0], &e.when, &mono(11.5), INK2, false);
-            icon_cell(ui, c[1], if e.ok { icon::CHECK_CIRCLE } else { icon::X_CIRCLE }, if e.ok { GOOD } else { CRITICAL_TEXT }, if e.ok { "Réussie" } else { "Refusée" }, &body(12.0), INK2);
-            cell(ui, c[2], &e.user, &body(12.5), INK, false);
-            cell(ui, c[3], &e.from, &mono(11.5), INK2, false);
-            cell(ui, c[4], &e.method, &body(12.0), INK2, false);
+            cell(ui, c[0], &e.when, &mono(11.5), pal().ink2, false);
+            icon_cell(ui, c[1], if e.ok { icon::CHECK_CIRCLE } else { icon::X_CIRCLE }, if e.ok { pal().good } else { pal().critical_text }, if e.ok { "Réussie" } else { "Refusée" }, &body(12.0), pal().ink2);
+            cell(ui, c[2], &e.user, &body(12.5), pal().ink, false);
+            match ip_only(&e.from) {
+                Some(ip) => ip_cell(ui, c[3], &ip, &e.from, &mono(11.5), pal().ink2),
+                None => cell(ui, c[3], &e.from, &mono(11.5), pal().ink2, false),
+            }
+            cell(ui, c[4], &e.method, &body(12.0), pal().ink2, false);
             if let Ok(ip) = e.from.parse::<std::net::IpAddr>() {
                 in_cell(ui, c[5], |ui| {
                     if small_button(ui, "Qui ?").clicked() {

@@ -16,6 +16,11 @@ pub enum Step {
     User(String, Vec<String>),
     WriteRoot(String, String),
     WriteUser(String, String),
+    /// Installe et démarre le service de capture.
+    InstallService,
+    RemoveService,
+    /// Efface l'historique du service, sauf le fichier en cours d'écriture si `keep_newest`.
+    ClearHistory { dir: String, keep_newest: bool },
 }
 
 impl Step {
@@ -32,10 +37,23 @@ impl Step {
                 format!("{p} {}", quoted.join(" "))
             }
             Step::WriteRoot(path, _) | Step::WriteUser(path, _) => format!("écrire {path}"),
+            Step::InstallService => format!(
+                "copier NetBuster dans {}\nécrire {}\nsystemctl enable --now {}",
+                crate::service::INSTALL_DIR,
+                crate::service::UNIT_PATH,
+                crate::service::UNIT_NAME
+            ),
+            Step::RemoveService => format!(
+                "systemctl disable --now {}\nsupprimer {} et {}",
+                crate::service::UNIT_NAME,
+                crate::service::UNIT_PATH,
+                crate::service::INSTALL_DIR
+            ),
+            Step::ClearHistory { dir, .. } => format!("supprimer les fichiers capture-*.pcap de {dir}"),
         }
     }
     pub fn needs_root(&self) -> bool {
-        matches!(self, Step::Root(..) | Step::WriteRoot(..))
+        matches!(self, Step::Root(..) | Step::WriteRoot(..) | Step::InstallService | Step::RemoveService)
     }
     pub fn run(&self, admin: &Admin) -> CmdResult {
         match self {
@@ -51,6 +69,12 @@ impl Step {
             Step::WriteUser(path, content) => match write_private_file(path, content) {
                 Ok(()) => CmdResult { ok: true, ..Default::default() },
                 Err(e) => CmdResult::error(format!("{path} : {e}")),
+            },
+            Step::InstallService => admin.service_install(),
+            Step::RemoveService => admin.service_remove(),
+            Step::ClearHistory { dir, keep_newest } => match crate::service::clear_history(std::path::Path::new(dir), *keep_newest) {
+                Ok(n) => CmdResult { ok: true, stdout: format!("{n} fichiers supprimés."), ..Default::default() },
+                Err(e) => CmdResult::error(format!("{dir} : {e}")),
             },
         }
     }

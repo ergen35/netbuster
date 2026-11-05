@@ -1,32 +1,154 @@
 //! Couleurs, polices et style de NetBuster.
 
+use crate::desktop::ThemeChoice;
 use eframe::egui::{self, Color32, CornerRadius, FontData, FontDefinitions, FontFamily, FontId, Stroke, TextStyle};
+use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::Arc;
 
-pub const PAGE: Color32 = Color32::from_rgb(0x0d, 0x0d, 0x0d);
-pub const SURFACE: Color32 = Color32::from_rgb(0x1a, 0x1a, 0x19);
-pub const RAISED: Color32 = Color32::from_rgb(0x26, 0x26, 0x24);
-pub const FIELD: Color32 = Color32::from_rgb(0x12, 0x12, 0x11);
-pub const BORDER: Color32 = Color32::from_rgb(0x2f, 0x2f, 0x2d);
-pub const INK: Color32 = Color32::from_rgb(0xf0, 0xef, 0xec);
-pub const INK2: Color32 = Color32::from_rgb(0xc3, 0xc2, 0xb7);
-pub const MUTED: Color32 = Color32::from_rgb(0x96, 0x94, 0x8d);
-pub const GRID: Color32 = Color32::from_rgb(0x2c, 0x2c, 0x2a);
-pub const AXIS: Color32 = Color32::from_rgb(0x38, 0x38, 0x35);
+/// Toutes les couleurs de l'interface, pour un thème.
+pub struct Palette {
+    pub page: Color32,
+    pub surface: Color32,
+    pub raised: Color32,
+    pub field: Color32,
+    pub border: Color32,
+    pub ink: Color32,
+    pub ink2: Color32,
+    pub muted: Color32,
+    pub grid: Color32,
+    pub axis: Color32,
+    /// Reçu et envoyé : les deux mêmes teintes dans toute l'application.
+    pub rx: Color32,
+    pub tx: Color32,
+    pub series3: Color32,
+    pub primary: Color32,
+    pub primary_hover: Color32,
+    pub good: Color32,
+    pub warning: Color32,
+    pub serious: Color32,
+    pub critical: Color32,
+    pub critical_text: Color32,
+    pub link: Color32,
+    pub danger: Color32,
+    pub row_hover: Color32,
+    pub row_selected: Color32,
+    pub notice: Color32,
+    pub switch_off: Color32,
+    pub faint: Color32,
+    pub band: Color32,
+    pub connector: Color32,
+    pub bubble_out: Color32,
+    pub bubble_in: Color32,
+    /// Cases à cocher et barres de défilement.
+    pub control: Color32,
+    pub widget_hover: Color32,
+    pub widget_hover_line: Color32,
+    pub widget_active: Color32,
+    pub widget_active_line: Color32,
+    pub backdrop: u8,
+}
 
-/// Reçu et envoyé : les deux mêmes teintes dans toute l'application.
-pub const RX: Color32 = Color32::from_rgb(0x39, 0x87, 0xe5);
-pub const TX: Color32 = Color32::from_rgb(0xd9, 0x59, 0x26);
-pub const SERIES3: Color32 = Color32::from_rgb(0x19, 0x9e, 0x70);
+const fn rgb(v: u32) -> Color32 {
+    Color32::from_rgb((v >> 16) as u8, (v >> 8) as u8, v as u8)
+}
 
-pub const PRIMARY: Color32 = Color32::from_rgb(0x25, 0x6a, 0xbf);
-pub const PRIMARY_HOVER: Color32 = Color32::from_rgb(0x2a, 0x78, 0xd6);
+pub static DARK: Palette = Palette {
+    page: rgb(0x0d0d0d),
+    surface: rgb(0x1a1a19),
+    raised: rgb(0x262624),
+    field: rgb(0x121211),
+    border: rgb(0x2f2f2d),
+    ink: rgb(0xf0efec),
+    ink2: rgb(0xc3c2b7),
+    muted: rgb(0x96948d),
+    grid: rgb(0x2c2c2a),
+    axis: rgb(0x383835),
+    rx: rgb(0x3987e5),
+    tx: rgb(0xd95926),
+    series3: rgb(0x199e70),
+    primary: rgb(0x256abf),
+    primary_hover: rgb(0x2a78d6),
+    good: rgb(0x0ca30c),
+    warning: rgb(0xfab219),
+    serious: rgb(0xec835a),
+    critical: rgb(0xd03b3b),
+    critical_text: rgb(0xf07a7a),
+    link: rgb(0x3987e5),
+    danger: rgb(0xa82c2c),
+    row_hover: rgb(0x222220),
+    row_selected: rgb(0x1f334d),
+    notice: rgb(0x20201e),
+    switch_off: rgb(0x5c5c58),
+    faint: rgb(0x1f1f1e),
+    band: rgb(0x21211f),
+    connector: rgb(0x5b5a55),
+    bubble_out: rgb(0x241c18),
+    bubble_in: rgb(0x171e27),
+    control: rgb(0x3f3f3b),
+    widget_hover: rgb(0x333330),
+    widget_hover_line: rgb(0x4a4a46),
+    widget_active: rgb(0x3d3d39),
+    widget_active_line: rgb(0x5a5a55),
+    backdrop: 150,
+};
 
-pub const GOOD: Color32 = Color32::from_rgb(0x0c, 0xa3, 0x0c);
-pub const WARNING: Color32 = Color32::from_rgb(0xfa, 0xb2, 0x19);
-pub const SERIOUS: Color32 = Color32::from_rgb(0xec, 0x83, 0x5a);
-pub const CRITICAL: Color32 = Color32::from_rgb(0xd0, 0x3b, 0x3b);
-pub const CRITICAL_TEXT: Color32 = Color32::from_rgb(0xf0, 0x7a, 0x7a);
+/// Teintes de `dataviz` pour fond clair. Les états sont assombris : un symbole fin doit rester
+/// lisible à 3:1 au moins sur un fond presque blanc.
+pub static LIGHT: Palette = Palette {
+    page: rgb(0xf3f3f0),
+    surface: rgb(0xfcfcfb),
+    raised: rgb(0xeceae5),
+    field: rgb(0xf0efeb),
+    border: rgb(0xdddcd5),
+    ink: rgb(0x0b0b0b),
+    ink2: rgb(0x52514e),
+    muted: rgb(0x6b6a64),
+    grid: rgb(0xe1e0d9),
+    axis: rgb(0xc3c2b7),
+    rx: rgb(0x2a78d6),
+    tx: rgb(0xeb6834),
+    series3: rgb(0x1baf7a),
+    primary: rgb(0x256abf),
+    primary_hover: rgb(0x1c5cab),
+    good: rgb(0x0b7f0b),
+    warning: rgb(0xb26a00),
+    serious: rgb(0xc4501f),
+    critical: rgb(0xc62f2f),
+    critical_text: rgb(0xb3261e),
+    link: rgb(0x1c5cab),
+    danger: rgb(0xb42525),
+    row_hover: rgb(0xf0efea),
+    row_selected: rgb(0xd9e7f8),
+    notice: rgb(0xf6f5f1),
+    switch_off: rgb(0x8a8981),
+    faint: rgb(0xf5f4f0),
+    band: rgb(0xf1f0eb),
+    connector: rgb(0x85847c),
+    bubble_out: rgb(0xfbeee7),
+    bubble_in: rgb(0xe8f1fb),
+    control: rgb(0xcfcec6),
+    widget_hover: rgb(0xe4e3dc),
+    widget_hover_line: rgb(0xbdbcb3),
+    widget_active: rgb(0xd9d8d0),
+    widget_active_line: rgb(0xa5a49b),
+    backdrop: 90,
+};
+
+static IS_LIGHT: AtomicBool = AtomicBool::new(false);
+
+/// La palette du thème en cours.
+#[inline]
+pub fn pal() -> &'static Palette {
+    if IS_LIGHT.load(Ordering::Relaxed) {
+        &LIGHT
+    } else {
+        &DARK
+    }
+}
+
+pub fn set_theme(choice: ThemeChoice) {
+    IS_LIGHT.store(choice == ThemeChoice::Light, Ordering::Relaxed);
+}
 
 pub fn bold(size: f32) -> FontId {
     FontId::new(size, FontFamily::Name("bold".into()))
@@ -104,9 +226,12 @@ pub fn install_fonts(ctx: &egui::Context) {
     ctx.set_fonts(f);
 }
 
-pub fn apply_style(ctx: &egui::Context) {
-    ctx.set_theme(egui::Theme::Dark);
-    ctx.global_style_mut(|s| {
+pub fn apply_style(ctx: &egui::Context, choice: ThemeChoice) {
+    set_theme(choice);
+    let light = choice == ThemeChoice::Light;
+    let p = if light { &LIGHT } else { &DARK };
+    ctx.set_theme(if light { egui::Theme::Light } else { egui::Theme::Dark });
+    ctx.all_styles_mut(|s| {
         s.text_styles.insert(TextStyle::Body, body(13.5));
         s.text_styles.insert(TextStyle::Button, body(13.5));
         s.text_styles.insert(TextStyle::Small, body(11.5));
@@ -119,50 +244,98 @@ pub fn apply_style(ctx: &egui::Context) {
         s.spacing.combo_height = 320.0;
         s.spacing.scroll.bar_width = 8.0;
         s.spacing.scroll.floating = false;
+        // La barre de défilement ne doit pas être l'élément le plus visible de la page :
+        // elle prend la teinte des contrôles et non celle du texte.
+        s.spacing.scroll.foreground_color = false;
 
         let v = &mut s.visuals;
-        v.dark_mode = true;
-        v.panel_fill = PAGE;
-        v.window_fill = SURFACE;
-        v.window_stroke = Stroke::new(1.0, AXIS);
+        v.dark_mode = !light;
+        v.panel_fill = p.page;
+        v.window_fill = p.surface;
+        v.window_stroke = Stroke::new(1.0, p.axis);
         v.window_corner_radius = CornerRadius::same(10);
         v.menu_corner_radius = CornerRadius::same(8);
-        v.extreme_bg_color = FIELD;
-        v.faint_bg_color = Color32::from_rgb(0x1f, 0x1f, 0x1e);
-        v.code_bg_color = FIELD;
-        v.hyperlink_color = RX;
-        v.selection.bg_fill = PRIMARY;
-        v.selection.stroke = Stroke::new(1.0, INK);
+        v.extreme_bg_color = p.field;
+        v.faint_bg_color = p.faint;
+        v.code_bg_color = p.field;
+        v.hyperlink_color = p.link;
+        v.selection.bg_fill = p.primary;
+        // Le texte d'un choix sélectionné est posé sur le bleu, dans les deux thèmes.
+        v.selection.stroke = Stroke::new(1.0, Color32::WHITE);
         v.override_text_color = None;
 
         let radius = CornerRadius::same(6);
         let w = &mut v.widgets;
-        w.noninteractive.bg_fill = SURFACE;
-        w.noninteractive.weak_bg_fill = SURFACE;
-        w.noninteractive.bg_stroke = Stroke::new(1.0, BORDER);
-        w.noninteractive.fg_stroke = Stroke::new(1.0, INK2);
+        w.noninteractive.bg_fill = p.surface;
+        w.noninteractive.weak_bg_fill = p.surface;
+        w.noninteractive.bg_stroke = Stroke::new(1.0, p.border);
+        w.noninteractive.fg_stroke = Stroke::new(1.0, p.ink2);
         w.noninteractive.corner_radius = radius;
-        w.inactive.bg_fill = RAISED;
-        w.inactive.weak_bg_fill = RAISED;
-        w.inactive.bg_stroke = Stroke::new(1.0, BORDER);
-        w.inactive.fg_stroke = Stroke::new(1.0, INK);
+        w.inactive.bg_fill = p.control;
+        w.inactive.weak_bg_fill = p.raised;
+        w.inactive.bg_stroke = Stroke::new(1.0, p.border);
+        w.inactive.fg_stroke = Stroke::new(1.0, p.ink);
         w.inactive.corner_radius = radius;
-        w.hovered.bg_fill = Color32::from_rgb(0x33, 0x33, 0x30);
-        w.hovered.weak_bg_fill = Color32::from_rgb(0x33, 0x33, 0x30);
-        w.hovered.bg_stroke = Stroke::new(1.0, Color32::from_rgb(0x4a, 0x4a, 0x46));
-        w.hovered.fg_stroke = Stroke::new(1.0, INK);
+        w.hovered.bg_fill = p.widget_hover_line;
+        w.hovered.weak_bg_fill = p.widget_hover;
+        w.hovered.bg_stroke = Stroke::new(1.0, p.widget_hover_line);
+        w.hovered.fg_stroke = Stroke::new(1.0, p.ink);
         w.hovered.corner_radius = radius;
         w.hovered.expansion = 0.0;
-        w.active.bg_fill = Color32::from_rgb(0x3d, 0x3d, 0x39);
-        w.active.weak_bg_fill = Color32::from_rgb(0x3d, 0x3d, 0x39);
-        w.active.bg_stroke = Stroke::new(1.0, Color32::from_rgb(0x5a, 0x5a, 0x55));
-        w.active.fg_stroke = Stroke::new(1.0, INK);
+        w.active.bg_fill = p.widget_active_line;
+        w.active.weak_bg_fill = p.widget_active;
+        w.active.bg_stroke = Stroke::new(1.0, p.widget_active_line);
+        w.active.fg_stroke = Stroke::new(1.0, p.ink);
         w.active.corner_radius = radius;
         w.active.expansion = 0.0;
-        w.open.bg_fill = RAISED;
-        w.open.weak_bg_fill = RAISED;
-        w.open.bg_stroke = Stroke::new(1.0, AXIS);
-        w.open.fg_stroke = Stroke::new(1.0, INK);
+        w.open.bg_fill = p.raised;
+        w.open.weak_bg_fill = p.raised;
+        w.open.bg_stroke = Stroke::new(1.0, p.axis);
+        w.open.fg_stroke = Stroke::new(1.0, p.ink);
         w.open.corner_radius = radius;
     });
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn lum(c: Color32) -> f64 {
+        let f = |v: u8| {
+            let v = v as f64 / 255.0;
+            if v <= 0.03928 { v / 12.92 } else { ((v + 0.055) / 1.055).powf(2.4) }
+        };
+        0.2126 * f(c.r()) + 0.7152 * f(c.g()) + 0.0722 * f(c.b())
+    }
+
+    fn contrast(a: Color32, b: Color32) -> f64 {
+        let (x, y) = (lum(a).max(lum(b)), lum(a).min(lum(b)));
+        (x + 0.05) / (y + 0.05)
+    }
+
+    #[test]
+    fn every_text_stays_readable_in_both_themes() {
+        for p in [&DARK, &LIGHT] {
+            for bg in [p.surface, p.page] {
+                for (name, ink) in [("ink", p.ink), ("ink2", p.ink2), ("muted", p.muted), ("link", p.link), ("critical_text", p.critical_text)] {
+                    assert!(contrast(ink, bg) >= 4.5, "{name} : {:.2}", contrast(ink, bg));
+                }
+            }
+            // Le texte courant reste lisible sur un bouton et sur une ligne sélectionnée.
+            assert!(contrast(p.ink, p.raised) >= 4.5);
+            assert!(contrast(p.ink, p.row_selected) >= 4.5);
+            assert!(contrast(Color32::WHITE, p.primary) >= 4.5);
+            assert!(contrast(Color32::WHITE, p.danger) >= 4.5);
+        }
+    }
+
+    #[test]
+    fn symbols_and_series_stand_out_in_both_themes() {
+        for p in [&DARK, &LIGHT] {
+            for (name, c) in [("rx", p.rx), ("tx", p.tx), ("good", p.good), ("warning", p.warning), ("serious", p.serious), ("critical", p.critical)] {
+                assert!(contrast(c, p.surface) >= 3.0, "{name} : {:.2}", contrast(c, p.surface));
+            }
+            assert!(contrast(p.switch_off, p.surface) >= 2.5);
+        }
+    }
 }

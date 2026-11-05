@@ -21,6 +21,10 @@ pub enum AdminState {
 
 pub enum Incoming {
     Frame(RawFrame),
+    /// Paquet reçu du service de capture, qui a priorité sur l'assistant administrateur.
+    ServiceFrame(RawFrame),
+    /// Paquet relu depuis l'historique du service.
+    History(RawFrame),
     Event(Event),
 }
 
@@ -184,6 +188,15 @@ impl Admin {
 
     pub fn write_root(&self, path: &str, content: &str) -> CmdResult {
         self.request(|id| Cmd::WriteFile { id, path: path.to_string(), content: content.to_string() }, Duration::from_secs(10))
+    }
+
+    /// Copie le programme et lance le service : peut prendre un moment sur une machine chargée.
+    pub fn service_install(&self) -> CmdResult {
+        self.request(|id| Cmd::ServiceInstall { id }, Duration::from_secs(120))
+    }
+
+    pub fn service_remove(&self) -> CmdResult {
+        self.request(|id| Cmd::ServiceRemove { id }, Duration::from_secs(60))
     }
 
     /// Exécute en administrateur si possible, sinon avec les droits normaux.

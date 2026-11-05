@@ -4,7 +4,8 @@ use crate::admin::{Admin, AdminState, Incoming};
 use crate::enrich::Enricher;
 use crate::manage::{self, ActionResult, FirewallData, NetConfigData, SshData};
 use crate::model::{IfKind, Iface, Model, Sample, Usage, HISTORY_CAP};
-use crate::proto::{Cmd, Event};
+use crate::proto::{read_frame, Cmd, Event, RawFrame, ServiceStats, TAG_EVENT, TAG_PACKET};
+use crate::service::ServicePaths;
 use crate::ss::{self, SS_ARGS};
 use crate::trace::Tracer;
 use crate::util::run;
@@ -20,6 +21,42 @@ pub const PANEL_NONE: u8 = 0;
 pub const PANEL_FIREWALL: u8 = 1;
 pub const PANEL_CONFIG: u8 = 2;
 pub const PANEL_SSH: u8 = 3;
+
+/// Ordres donnés à la fenêtre par l'icône de la barre d'état ou par un second lancement.
+#[derive(Debug, Clone, Copy, PartialEq)]
+pub enum Ctl {
+    Show,
+    Hide,
+    Quit,
+}
+
+#[derive(Default)]
+pub struct Control {
+    queue: Mutex<std::collections::VecDeque<Ctl>>,
+    ready: std::sync::Condvar,
+}
+
+impl Control {
+    pub fn push(&self, c: Ctl) {
+        self.queue.lock().unwrap().push_back(c);
+        self.ready.notify_all();
+    }
+
+    pub fn try_pop(&self) -> Option<Ctl> {
+        self.queue.lock().unwrap().pop_front()
+    }
+
+    /// Attend un ordre : c'est ce que fait NetBuster quand aucune fenêtre n'est ouverte.
+    pub fn wait(&self) -> Ctl {
+        let mut q = self.queue.lock().unwrap();
+        loop {
+            if let Some(c) = q.pop_front() {
+                return c;
+            }
+            q = self.ready.wait(q).unwrap();
+        }
+    }
+}
 
 #[derive(Default)]
 pub struct Panels {
@@ -41,14 +78,27 @@ pub struct Shared {
     pub action_log: Mutex<Vec<ActionResult>>,
     pub action_running: AtomicBool,
     pub repaint: Mutex<Option<eframe::egui::Context>>,
+    pub control: Control,
+    pub service_paths: ServicePaths,
+    /// La fenêtre reçoit les paquets du service : pas besoin de capture en administrateur.
+    pub service_up: AtomicBool,
+    pub tray_available: AtomicBool,
 }
 
 impl Shared {
     pub fn start(mock_dir: Option<String>) -> Arc<Shared> {
-        Self::start_with(Admin::new(mock_dir))
+        let paths = match &mock_dir {
+            Some(dir) => ServicePaths::under(Path::new(dir)),
+            None => ServicePaths::system(),
+        };
+        Self::start_with_paths(Admin::new(mock_dir), paths)
     }
 
     pub fn start_with(admin: Arc<Admin>) -> Arc<Shared> {
+        Self::start_with_paths(admin, ServicePaths::system())
+    }
+
+    pub fn start_with_paths(admin: Arc<Admin>, service_paths: ServicePaths) -> Arc<Shared> {
         let (tx, rx) = channel();
         let mut model = Model::new();
         model.usage = Usage::load();
@@ -65,6 +115,10 @@ impl Shared {
             action_log: Mutex::new(vec![]),
             action_running: AtomicBool::new(false),
             repaint: Mutex::new(None),
+            control: Control::default(),
+            service_paths,
+            service_up: AtomicBool::new(false),
+            tray_available: AtomicBool::new(false),
         });
         let s = shared.clone();
         std::thread::spawn(move || sampler_loop(s));
@@ -72,6 +126,8 @@ impl Shared {
         std::thread::spawn(move || ingest_loop(s, rx));
         let s = shared.clone();
         std::thread::spawn(move || panels_loop(s));
+        let s = shared.clone();
+        std::thread::spawn(move || service_client_loop(s));
         shared
     }
 
@@ -95,12 +151,53 @@ impl Shared {
     }
 
     pub fn start_capture(&self) {
+        // Le service capture déjà tout : une seconde capture montrerait chaque paquet en double.
+        if self.service_up.load(Ordering::Relaxed) {
+            return;
+        }
         let snap = self.capture_snap.load(Ordering::Relaxed);
         self.admin.send(&Cmd::StartCapture { snap });
     }
 
     pub fn stop_capture(&self) {
         self.admin.send(&Cmd::StopCapture);
+    }
+
+    /// Le réglage « capturer dès l'ouverture » : laisse d'abord au service le temps de répondre,
+    /// car lui ne demande pas de mot de passe.
+    pub fn capture_at_open(self: &Arc<Self>) {
+        let me = self.clone();
+        std::thread::spawn(move || {
+            std::thread::sleep(Duration::from_millis(1500));
+            if !me.service_up.load(Ordering::Relaxed) {
+                me.enable_admin();
+            }
+        });
+    }
+
+    /// Relit un fichier de l'historique et l'ajoute à la liste des paquets.
+    pub fn load_history(self: &Arc<Self>, path: std::path::PathBuf) {
+        let me = self.clone();
+        std::thread::spawn(move || {
+            // Ce qui a suivi la connexion au service est déjà affiché.
+            let cutoff = {
+                let m = me.model.lock().unwrap();
+                if m.capture.service { m.capture.service_live_since_us } else { u64::MAX }
+            };
+            let mut count = 0;
+            let res = crate::service::read_capture_file(&path, &mut |f: RawFrame| {
+                if f.ts_us < cutoff {
+                    count += 1;
+                    let _ = me.incoming.send(Incoming::History(f));
+                }
+            });
+            let event = match res {
+                Ok(_) => Event::HistoryLoaded { path: path.to_string_lossy().into_owned(), count },
+                Err(e) => Event::CaptureError(format!("{} : {e}", path.display())),
+            };
+            let _ = me.incoming.send(Incoming::Event(event));
+            me.request_repaint();
+        });
     }
 
     pub fn run_action(self: &Arc<Self>, action: manage::Action) {
@@ -364,6 +461,51 @@ fn refresh_proc_infos(m: &mut Model) {
     }
 }
 
+enum Parsed {
+    Live(crate::packet::Packet),
+    Old(crate::packet::Packet),
+    Event(Event),
+}
+
+/// Reste relié au service de capture tant qu'il tourne, et se reconnecte s'il redémarre.
+fn service_client_loop(s: Arc<Shared>) {
+    let socket = s.service_paths.socket();
+    loop {
+        let Ok(stream) = std::os::unix::net::UnixStream::connect(&socket) else {
+            std::thread::sleep(Duration::from_secs(1));
+            continue;
+        };
+        // Avant toute chose : `start_capture` doit savoir que le service a pris le relais.
+        s.service_up.store(true, Ordering::Relaxed);
+        s.stop_capture();
+        let _ = s.incoming.send(Incoming::Event(Event::ServiceUp));
+        s.request_repaint();
+        let mut reader = std::io::BufReader::with_capacity(256 * 1024, stream);
+        while let Ok(Some((tag, data))) = read_frame(&mut reader) {
+            match tag {
+                TAG_PACKET => {
+                    if let Some(f) = RawFrame::decode(&data) {
+                        let _ = s.incoming.send(Incoming::ServiceFrame(f));
+                    }
+                }
+                TAG_EVENT => {
+                    if let Ok(ev) = serde_json::from_slice::<Event>(&data) {
+                        let _ = s.incoming.send(Incoming::Event(ev));
+                    }
+                }
+                _ => {}
+            }
+        }
+        s.service_up.store(false, Ordering::Relaxed);
+        let _ = s.incoming.send(Incoming::Event(Event::ServiceDown));
+        // Le service vient de s'arrêter : si l'administrateur est actif, la capture reprend par lui.
+        if s.admin.is_on() {
+            s.start_capture();
+        }
+        s.request_repaint();
+    }
+}
+
 fn ingest_loop(s: Arc<Shared>, rx: Receiver<Incoming>) {
     let mut last_repaint = Instant::now();
     loop {
@@ -380,34 +522,82 @@ fn ingest_loop(s: Arc<Shared>, rx: Receiver<Incoming>) {
                 Err(_) => break,
             }
         }
+        // Au moment où le service prend le relais, l'assistant envoie encore quelques paquets
+        // que le service voit aussi : on les écarte pour ne rien afficher en double.
+        let service_up = s.service_up.load(Ordering::Relaxed);
         let parsed: Vec<_> = batch
             .into_iter()
+            .filter(|x| !(service_up && matches!(x, Incoming::Frame(_))))
             .map(|x| match x {
-                Incoming::Frame(f) => Ok(crate::packet::parse(f)),
-                Incoming::Event(e) => Err(e),
+                Incoming::Frame(f) | Incoming::ServiceFrame(f) => Parsed::Live(crate::packet::parse(f)),
+                Incoming::History(f) => Parsed::Old(crate::packet::parse(f)),
+                Incoming::Event(e) => Parsed::Event(e),
             })
             .collect();
+        let mut loaded = vec![];
         let mut m = s.model.lock().unwrap();
         for item in parsed {
-            match item {
-                Ok(p) => m.ingest(p),
-                Err(Event::CaptureStarted) => {
+            let event = match item {
+                Parsed::Live(p) => {
+                    m.ingest(p);
+                    continue;
+                }
+                Parsed::Old(p) => {
+                    m.replaying = true;
+                    m.ingest(p);
+                    m.replaying = false;
+                    continue;
+                }
+                Parsed::Event(e) => e,
+            };
+            match event {
+                Event::CaptureStarted => {
                     m.capture.running = true;
                     m.capture.error = None;
                 }
-                Err(Event::CaptureStopped) => m.capture.running = false,
-                Err(Event::CaptureError(e)) => {
-                    m.capture.running = false;
+                // Si le service est là, la capture continue par lui.
+                Event::CaptureStopped => m.capture.running = m.capture.service,
+                Event::CaptureError(e) => {
+                    m.capture.running = m.capture.service;
                     m.capture.error = Some(e);
                 }
-                Err(Event::CaptureStats { packets, drops }) => {
+                Event::CaptureStats { packets, drops } => {
                     m.capture.kernel_packets = packets;
                     m.capture.kernel_drops = drops;
                 }
-                Err(Event::Hello { .. }) => {}
+                Event::Hello { .. } => {}
+                Event::ServiceUp => {
+                    m.capture.service = true;
+                    m.capture.running = true;
+                    m.capture.error = None;
+                    m.capture.service_live_since_us = crate::helper::now_us();
+                }
+                Event::ServiceDown => {
+                    m.capture.service = false;
+                    m.capture.running = false;
+                    m.capture.service_stats = ServiceStats::default();
+                }
+                Event::ServiceStats(st) => {
+                    m.capture.kernel_packets = st.packets;
+                    m.capture.kernel_drops = st.drops;
+                    m.capture.service_stats = st;
+                }
+                Event::HistoryLoaded { path, count } => {
+                    m.sort_packets_by_time();
+                    m.history_loaded.insert(path.into());
+                    loaded.push(count);
+                }
             }
         }
         drop(m);
+        for count in loaded {
+            s.action_log.lock().unwrap().push(ActionResult {
+                title: "Historique chargé".into(),
+                ok: true,
+                detail: format!("{count} paquets ajoutés à la liste."),
+                at: chrono::Local::now().format("%H:%M:%S").to_string(),
+            });
+        }
         if last_repaint.elapsed() >= Duration::from_millis(200) {
             last_repaint = Instant::now();
             s.request_repaint();

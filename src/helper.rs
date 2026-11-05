@@ -1,6 +1,7 @@
 //! Assistant administrateur : lancé via `pkexec netbuster --helper`, seul morceau qui tourne en root.
 //!
-//! Il n'exécute que des programmes d'une liste fixe, sans shell, et n'écrit qu'un seul fichier.
+//! Il n'exécute que des programmes d'une liste fixe, sans shell. Il n'écrit que le réglage SSH et,
+//! sur demande, le service de capture avec sa copie du programme.
 //! Il s'arrête dès que la fenêtre se ferme (fin de son entrée standard).
 //!
 //! `--mock <dossier>` (tests, refusé en root) remplace les programmes par ceux du dossier et lit
@@ -92,9 +93,32 @@ pub fn run_helper(mock: Option<PathBuf>) -> i32 {
                     *guard = Some(stop.clone());
                     let (out2, mock2) = (out.clone(), mock.clone());
                     std::thread::spawn(move || {
+                        let mut since_flush = 0u32;
+                        let mut on_event = |ev: CaptureEvent| match ev {
+                            CaptureEvent::Started => send_event(&out2, &Event::CaptureStarted),
+                            CaptureEvent::Frame(f) => {
+                                let mut encoded = Vec::with_capacity(f.data.len() + 32);
+                                f.encode(&mut encoded);
+                                send(&out2, TAG_PACKET, &encoded);
+                                since_flush += 1;
+                                if since_flush >= 32 {
+                                    since_flush = 0;
+                                    if let Ok(mut w) = out2.lock() {
+                                        let _ = w.flush();
+                                    }
+                                }
+                            }
+                            CaptureEvent::Idle => {
+                                since_flush = 0;
+                                if let Ok(mut w) = out2.lock() {
+                                    let _ = w.flush();
+                                }
+                            }
+                            CaptureEvent::Stats { packets, drops } => send_event(&out2, &Event::CaptureStats { packets, drops }),
+                        };
                         let res = match &mock2 {
-                            Some(dir) => mock_capture(&dir.join("frames.bin"), &stop, &out2),
-                            None => capture_loop(snap, &stop, &out2),
+                            Some(dir) => replay_frames(&dir.join("frames.bin"), &stop, &mut on_event),
+                            None => kernel_capture(snap, &stop, &mut on_event),
                         };
                         if let Err(e) = res {
                             send_event(&out2, &Event::CaptureError(e));
@@ -110,6 +134,14 @@ pub fn run_helper(mock: Option<PathBuf>) -> i32 {
                 if let Some(stop) = capture_stop.lock().unwrap().take() {
                     stop.store(true, Ordering::SeqCst);
                 }
+            }
+            Cmd::ServiceInstall { id } => {
+                let (out2, mock2) = (out.clone(), mock.clone());
+                std::thread::spawn(move || send_reply(&out2, &service_install(id, mock2.as_deref())));
+            }
+            Cmd::ServiceRemove { id } => {
+                let (out2, mock2) = (out.clone(), mock.clone());
+                std::thread::spawn(move || send_reply(&out2, &service_remove(id, mock2.as_deref())));
             }
         }
     }
@@ -157,7 +189,7 @@ fn write_file(id: u64, path: &str, content: &str, mock: Option<&Path>) -> Reply 
     }
 }
 
-fn now_us() -> u64 {
+pub fn now_us() -> u64 {
     SystemTime::now().duration_since(UNIX_EPOCH).map(|d| d.as_micros() as u64).unwrap_or(0)
 }
 
@@ -171,7 +203,17 @@ const ETH_P_ALL: u16 = 0x0003;
 const SOL_PACKET: i32 = 263;
 const PACKET_STATISTICS: i32 = 6;
 
-fn capture_loop(snap: u32, stop: &AtomicBool, out: &Out) -> Result<(), String> {
+/// Ce que la lecture des paquets signale à celui qui l'a lancée.
+pub enum CaptureEvent<'a> {
+    Started,
+    Frame(&'a RawFrame),
+    /// Rien à lire pour l'instant : le bon moment pour vider les tampons.
+    Idle,
+    Stats { packets: u64, drops: u64 },
+}
+
+/// Lit tous les paquets de toutes les interfaces, y compris celles qui apparaîtront plus tard.
+pub fn kernel_capture(snap: u32, stop: &AtomicBool, on: &mut dyn FnMut(CaptureEvent)) -> Result<(), String> {
     // SOCK_DGRAM : le noyau retire l'en-tête de liaison, ce qui traite pareil Wi-Fi, Ethernet et tunnels.
     let fd = unsafe {
         libc::socket(libc::AF_PACKET, libc::SOCK_DGRAM | libc::SOCK_CLOEXEC, ETH_P_ALL.to_be() as i32)
@@ -206,10 +248,8 @@ fn capture_loop(snap: u32, stop: &AtomicBool, out: &Out) -> Result<(), String> {
         );
     }
 
-    send_event(out, &Event::CaptureStarted);
+    on(CaptureEvent::Started);
     let mut buf = vec![0u8; 262_144];
-    let mut encoded = Vec::with_capacity(70_000);
-    let mut since_flush = 0u32;
     let mut last_stats = Instant::now();
     let (mut total_packets, mut total_drops) = (0u64, 0u64);
 
@@ -230,12 +270,9 @@ fn capture_loop(snap: u32, stop: &AtomicBool, out: &Out) -> Result<(), String> {
         if n < 0 {
             let err = std::io::Error::last_os_error();
             match err.raw_os_error() {
-                Some(libc::EAGAIN) | Some(libc::EINTR) => {
-                    if let Ok(mut w) = out.lock() {
-                        let _ = w.flush();
-                    }
-                    since_flush = 0;
-                }
+                Some(libc::EAGAIN) | Some(libc::EINTR) => on(CaptureEvent::Idle),
+                // Une interface qui disparaît ne doit pas arrêter la capture des autres.
+                Some(libc::ENETDOWN) => {}
                 _ => return Err(format!("lecture interrompue : {err}")),
             }
         } else {
@@ -249,16 +286,7 @@ fn capture_loop(snap: u32, stop: &AtomicBool, out: &Out) -> Result<(), String> {
                 orig_len: orig as u32,
                 data: buf[..keep].to_vec(),
             };
-            encoded.clear();
-            frame.encode(&mut encoded);
-            send(out, TAG_PACKET, &encoded);
-            since_flush += 1;
-            if since_flush >= 32 {
-                if let Ok(mut w) = out.lock() {
-                    let _ = w.flush();
-                }
-                since_flush = 0;
-            }
+            on(CaptureEvent::Frame(&frame));
         }
         if last_stats.elapsed() >= Duration::from_secs(1) {
             last_stats = Instant::now();
@@ -271,7 +299,7 @@ fn capture_loop(snap: u32, stop: &AtomicBool, out: &Out) -> Result<(), String> {
                 // Ces compteurs repartent de zéro à chaque lecture.
                 total_packets += st.tp_packets as u64;
                 total_drops += st.tp_drops as u64;
-                send_event(out, &Event::CaptureStats { packets: total_packets, drops: total_drops });
+                on(CaptureEvent::Stats { packets: total_packets, drops: total_drops });
             }
         }
     }
@@ -279,9 +307,9 @@ fn capture_loop(snap: u32, stop: &AtomicBool, out: &Out) -> Result<(), String> {
 }
 
 /// Rejoue des paquets depuis un fichier : `[len u32 LE][RawFrame encodée]…`
-fn mock_capture(path: &Path, stop: &AtomicBool, out: &Out) -> Result<(), String> {
+pub fn replay_frames(path: &Path, stop: &AtomicBool, on: &mut dyn FnMut(CaptureEvent)) -> Result<(), String> {
     let data = std::fs::read(path).map_err(|e| format!("{}: {e}", path.display()))?;
-    send_event(out, &Event::CaptureStarted);
+    on(CaptureEvent::Started);
     let mut pos = 0;
     while pos + 4 <= data.len() && !stop.load(Ordering::SeqCst) {
         let len = u32::from_le_bytes(data[pos..pos + 4].try_into().unwrap()) as usize;
@@ -289,18 +317,113 @@ fn mock_capture(path: &Path, stop: &AtomicBool, out: &Out) -> Result<(), String>
         let Some(mut frame) = data.get(pos..pos + len).and_then(RawFrame::decode) else { break };
         pos += len;
         frame.ts_us = now_us();
-        let mut enc = Vec::new();
-        frame.encode(&mut enc);
-        send(out, TAG_PACKET, &enc);
-        if let Ok(mut w) = out.lock() {
-            let _ = w.flush();
-        }
+        on(CaptureEvent::Frame(&frame));
+        on(CaptureEvent::Idle);
         std::thread::sleep(Duration::from_millis(2));
     }
     while !stop.load(Ordering::SeqCst) {
         std::thread::sleep(Duration::from_millis(100));
     }
     Ok(())
+}
+
+// ---------- Installation du service de capture ----------
+
+/// Le compte de la personne qui a validé son mot de passe, donné par pkexec.
+fn requesting_user(mock: Option<&Path>) -> Result<String, String> {
+    let uid = match mock {
+        Some(_) => unsafe { libc::getuid() },
+        None => std::env::var("PKEXEC_UID")
+            .ok()
+            .and_then(|v| v.parse::<u32>().ok())
+            .ok_or("le compte qui fait la demande est inconnu (PKEXEC_UID absent)")?,
+    };
+    let pw = unsafe { libc::getpwuid(uid) };
+    if pw.is_null() {
+        return Err(format!("le compte {uid} est inconnu"));
+    }
+    let name = unsafe { std::ffi::CStr::from_ptr((*pw).pw_name) }.to_string_lossy().into_owned();
+    if crate::service::valid_user_name(&name) {
+        Ok(name)
+    } else {
+        Err(format!("nom de compte inattendu : {name}"))
+    }
+}
+
+fn reply_err(id: u64, stderr: String) -> Reply {
+    Reply { id, ok: false, code: 1, stderr, ..Default::default() }
+}
+
+/// Une copie de ce programme, à un endroit que seul l'administrateur peut modifier : sans cela,
+/// n'importe quel logiciel du compte pourrait remplacer ce que le système lance à chaque démarrage.
+fn service_install(id: u64, mock: Option<&Path>) -> Reply {
+    use crate::service::{install_binary, unit_text, ServicePaths, INSTALL_DIR, UNIT_NAME};
+    let user = match requesting_user(mock) {
+        Ok(u) => u,
+        Err(e) => return reply_err(id, e),
+    };
+    let paths = match mock {
+        Some(dir) => ServicePaths::under(dir),
+        None => ServicePaths::system(),
+    };
+    let install_dir = match mock {
+        Some(dir) => dir.join("service/installed"),
+        None => PathBuf::from(INSTALL_DIR),
+    };
+    if mock.is_none() {
+        if let Err(e) = install_binary(Path::new("/proc/self/exe"), &install_dir) {
+            return reply_err(id, format!("copie du programme impossible : {e}"));
+        }
+    }
+    let exe = PathBuf::from(INSTALL_DIR).join("netbuster");
+    if let Some(parent) = paths.unit.parent() {
+        let _ = std::fs::create_dir_all(parent);
+    }
+    let tmp = paths.unit.with_extension("tmp");
+    let written = std::fs::write(&tmp, unit_text(&user, &exe.to_string_lossy()))
+        .and_then(|_| std::fs::set_permissions(&tmp, std::os::unix::fs::PermissionsExt::from_mode(0o644)))
+        .and_then(|_| std::fs::rename(&tmp, &paths.unit));
+    if let Err(e) = written {
+        return reply_err(id, format!("écriture du service impossible : {e}"));
+    }
+    let reload = exec(id, "systemctl", &["daemon-reload".to_string()], mock);
+    if !reload.ok {
+        return reload;
+    }
+    let enable = exec(id, "systemctl", &["enable".to_string(), "--now".to_string(), UNIT_NAME.to_string()], mock);
+    if !enable.ok {
+        // Rien ne doit rester à moitié installé.
+        let _ = std::fs::remove_file(&paths.unit);
+        let _ = exec(id, "systemctl", &["daemon-reload".to_string()], mock);
+    }
+    enable
+}
+
+fn service_remove(id: u64, mock: Option<&Path>) -> Reply {
+    use crate::service::{ServicePaths, INSTALL_DIR, UNIT_NAME};
+    let paths = match mock {
+        Some(dir) => ServicePaths::under(dir),
+        None => ServicePaths::system(),
+    };
+    let disable = exec(id, "systemctl", &["disable".to_string(), "--now".to_string(), UNIT_NAME.to_string()], mock);
+    if !disable.ok && paths.unit.exists() && !disable.stderr.contains("not loaded") && !disable.stderr.contains("does not exist") {
+        return disable;
+    }
+    if let Err(e) = std::fs::remove_file(&paths.unit) {
+        if e.kind() != std::io::ErrorKind::NotFound {
+            return reply_err(id, format!("suppression du service impossible : {e}"));
+        }
+    }
+    let reload = exec(id, "systemctl", &["daemon-reload".to_string()], mock);
+    if mock.is_none() {
+        // Seule la copie du programme part : l'historique reste, il appartient à la personne.
+        if let Err(e) = std::fs::remove_dir_all(INSTALL_DIR) {
+            if e.kind() != std::io::ErrorKind::NotFound {
+                return reply_err(id, format!("suppression de {INSTALL_DIR} impossible : {e}"));
+            }
+        }
+    }
+    Reply { id, ..reload }
 }
 
 #[cfg(test)]

@@ -60,8 +60,8 @@ pub fn throughput(ui: &mut Ui, samples: &VecDeque<Sample>, now: f64, window_secs
     let mut v = 0.0;
     while v <= top + step * 0.01 {
         let y = y_of(v);
-        painter.hline(plot.x_range(), y, Stroke::new(1.0, if v == 0.0 { AXIS } else { GRID }));
-        painter.text(Pos2::new(plot.left() - 8.0, y), Align2::RIGHT_CENTER, fmt_rate(v), mono(11.0), MUTED);
+        painter.hline(plot.x_range(), y, Stroke::new(1.0, if v == 0.0 { pal().axis } else { pal().grid }));
+        painter.text(Pos2::new(plot.left() - 8.0, y), Align2::RIGHT_CENTER, fmt_rate(v), mono(11.0), pal().muted);
         v += step;
     }
     let tick_every = match window_secs as u64 {
@@ -73,7 +73,7 @@ pub fn throughput(ui: &mut Ui, samples: &VecDeque<Sample>, now: f64, window_secs
     let mut ago = 0.0;
     while ago <= window_secs {
         let x = x_of(now - ago);
-        painter.vline(x, plot.bottom()..=plot.bottom() + 4.0, Stroke::new(1.0, AXIS));
+        painter.vline(x, plot.bottom()..=plot.bottom() + 4.0, Stroke::new(1.0, pal().axis));
         let label = if ago == 0.0 {
             "maintenant".to_string()
         } else if ago < 60.0 {
@@ -82,7 +82,7 @@ pub fn throughput(ui: &mut Ui, samples: &VecDeque<Sample>, now: f64, window_secs
             format!("−{:.0} min", ago / 60.0)
         };
         let align = if ago == 0.0 { Align2::RIGHT_TOP } else { Align2::CENTER_TOP };
-        painter.text(Pos2::new(x, plot.bottom() + 6.0), align, label, body(11.0), MUTED);
+        painter.text(Pos2::new(x, plot.bottom() + 6.0), align, label, body(11.0), pal().muted);
         ago += tick_every;
     }
 
@@ -97,11 +97,11 @@ pub fn throughput(ui: &mut Ui, samples: &VecDeque<Sample>, now: f64, window_secs
             painter.circle_filled(*last, 3.5, color);
         }
     };
-    series(&|s| s.tx, TX);
-    series(&|s| s.rx, RX);
+    series(&|s| s.tx, pal().tx);
+    series(&|s| s.rx, pal().rx);
 
     if visible.len() < 2 {
-        painter.text(plot.center(), Align2::CENTER_CENTER, "Collecte des premières mesures…", body(13.0), MUTED);
+        painter.text(plot.center(), Align2::CENTER_CENTER, "Collecte des premières mesures…", body(13.0), pal().muted);
     }
 
     // Lecture au survol : point le plus proche, valeurs exactes.
@@ -110,15 +110,15 @@ pub fn throughput(ui: &mut Ui, samples: &VecDeque<Sample>, now: f64, window_secs
             let t = t0 + ((p.x - plot.left()) / plot.width()) as f64 * window_secs;
             let near = visible.iter().min_by(|a, b| (a.t - t).abs().total_cmp(&(b.t - t).abs())).unwrap();
             let x = x_of(near.t);
-            painter.vline(x, plot.y_range(), Stroke::new(1.0, AXIS));
-            painter.circle(Pos2::new(x, y_of(near.rx as f64)), 4.0, RX, Stroke::new(2.0, SURFACE));
-            painter.circle(Pos2::new(x, y_of(near.tx as f64)), 4.0, TX, Stroke::new(2.0, SURFACE));
+            painter.vline(x, plot.y_range(), Stroke::new(1.0, pal().axis));
+            painter.circle(Pos2::new(x, y_of(near.rx as f64)), 4.0, pal().rx, Stroke::new(2.0, pal().surface));
+            painter.circle(Pos2::new(x, y_of(near.tx as f64)), 4.0, pal().tx, Stroke::new(2.0, pal().surface));
             let ago = now - near.t;
             let (rx, tx) = (near.rx, near.tx);
             egui::Tooltip::always_open(ui.ctx().clone(), ui.layer_id(), ui.scope_id().with("chart_tip"), egui::PopupAnchor::Pointer).show(|ui| {
-                ui.label(egui::RichText::new(format!("il y a {ago:.0} s")).color(MUTED).size(12.0));
-                legend_value(ui, RX, "Reçu", &fmt_rate(rx as f64));
-                legend_value(ui, TX, "Envoyé", &fmt_rate(tx as f64));
+                ui.label(egui::RichText::new(format!("il y a {ago:.0} s")).color(pal().muted).size(12.0));
+                legend_value(ui, pal().rx, "Reçu", &fmt_rate(rx as f64));
+                legend_value(ui, pal().tx, "Envoyé", &fmt_rate(tx as f64));
             });
         }
     }
@@ -129,8 +129,8 @@ pub fn legend_value(ui: &mut Ui, color: Color32, name: &str, value: &str) {
         ui.spacing_mut().item_spacing.x = 6.0;
         let (r, _) = ui.allocate_exact_size(Vec2::splat(10.0), Sense::hover());
         ui.painter().circle_filled(r.center(), 4.0, color);
-        ui.label(egui::RichText::new(name).color(INK2).size(12.5));
-        ui.label(egui::RichText::new(value).color(INK).size(12.5));
+        ui.label(egui::RichText::new(name).color(pal().ink2).size(12.5));
+        ui.label(egui::RichText::new(value).color(pal().ink).size(12.5));
     });
 }
 
@@ -145,11 +145,11 @@ pub fn spark_in(ui: &Ui, rect: Rect, hist: &VecDeque<(f32, f32)>) {
     let n = hist.len().max(60);
     let x_of = |i: usize| r.right() - (hist.len() - 1 - i) as f32 / (n - 1) as f32 * r.width();
     let y_of = |v: f32| r.bottom() - (v / max) * r.height();
-    painter.hline(r.x_range(), r.bottom(), Stroke::new(1.0, GRID));
+    painter.hline(r.x_range(), r.bottom(), Stroke::new(1.0, pal().grid));
     let tx: Vec<Pos2> = hist.iter().enumerate().map(|(i, h)| Pos2::new(x_of(i), y_of(h.1))).collect();
     let rx: Vec<Pos2> = hist.iter().enumerate().map(|(i, h)| Pos2::new(x_of(i), y_of(h.0))).collect();
-    painter.add(PathShape::line(tx, Stroke::new(1.25, TX)));
-    painter.add(PathShape::line(rx, Stroke::new(1.25, RX)));
+    painter.add(PathShape::line(tx, Stroke::new(1.25, pal().tx)));
+    painter.add(PathShape::line(rx, Stroke::new(1.25, pal().rx)));
 }
 
 pub fn spark_samples_in(ui: &Ui, rect: Rect, samples: &VecDeque<Sample>, last_n: usize) {
@@ -163,7 +163,7 @@ pub fn split_bar(ui: &Ui, rect: Rect, rx: f64, tx: f64, scale_max: f64) {
     let h = 6.0;
     let y = rect.center().y - h / 2.0;
     let track = Rect::from_min_size(Pos2::new(rect.left(), y), Vec2::new(rect.width(), h));
-    ui.painter().rect_filled(track, CornerRadius::same(3), RAISED);
+    ui.painter().rect_filled(track, CornerRadius::same(3), pal().raised);
     if scale_max <= 0.0 {
         return;
     }
@@ -173,10 +173,10 @@ pub fn split_bar(ui: &Ui, rect: Rect, rx: f64, tx: f64, scale_max: f64) {
     let (rx_w, tx_w) = (min_vis(rx_w), min_vis(tx_w));
     let gap = if rx_w > 0.0 && tx_w > 0.0 { 2.0 } else { 0.0 };
     if rx_w > 0.0 {
-        ui.painter().rect_filled(Rect::from_min_size(track.min, Vec2::new(rx_w, h)), CornerRadius::same(3), RX);
+        ui.painter().rect_filled(Rect::from_min_size(track.min, Vec2::new(rx_w, h)), CornerRadius::same(3), pal().rx);
     }
     if tx_w > 0.0 {
-        ui.painter().rect_filled(Rect::from_min_size(Pos2::new(track.left() + rx_w + gap, y), Vec2::new(tx_w, h)), CornerRadius::same(3), TX);
+        ui.painter().rect_filled(Rect::from_min_size(Pos2::new(track.left() + rx_w + gap, y), Vec2::new(tx_w, h)), CornerRadius::same(3), pal().tx);
     }
 }
 
@@ -200,8 +200,8 @@ pub fn day_bars(ui: &mut Ui, bars: &[DayBar], height: f32) {
     let mut v = 0.0;
     while v <= top + step * 0.01 {
         let y = y_of(v);
-        painter.hline(plot.x_range(), y, Stroke::new(1.0, if v == 0.0 { AXIS } else { GRID }));
-        painter.text(Pos2::new(plot.left() - 8.0, y), Align2::RIGHT_CENTER, fmt_bytes(v as u64), mono(11.0), MUTED);
+        painter.hline(plot.x_range(), y, Stroke::new(1.0, if v == 0.0 { pal().axis } else { pal().grid }));
+        painter.text(Pos2::new(plot.left() - 8.0, y), Align2::RIGHT_CENTER, fmt_bytes(v as u64), mono(11.0), pal().muted);
         v += step;
     }
     let n = bars.len().max(1) as f32;
@@ -211,27 +211,27 @@ pub fn day_bars(ui: &mut Ui, bars: &[DayBar], height: f32) {
     for (i, b) in bars.iter().enumerate() {
         let cx = plot.left() + slot * (i as f32 + 0.5);
         if hover_idx == Some(i) {
-            painter.rect_filled(Rect::from_center_size(Pos2::new(cx, plot.center().y), Vec2::new(slot, plot.height())), CornerRadius::same(3), RAISED);
+            painter.rect_filled(Rect::from_center_size(Pos2::new(cx, plot.center().y), Vec2::new(slot, plot.height())), CornerRadius::same(3), pal().raised);
         }
         let (rx_top, total_top) = (y_of(b.rx as f64), y_of((b.rx + b.tx) as f64));
         if b.rx > 0 {
-            painter.rect_filled(Rect::from_min_max(Pos2::new(cx - bar_w / 2.0, rx_top), Pos2::new(cx + bar_w / 2.0, plot.bottom())), CornerRadius { nw: 2, ne: 2, sw: 0, se: 0 }, RX);
+            painter.rect_filled(Rect::from_min_max(Pos2::new(cx - bar_w / 2.0, rx_top), Pos2::new(cx + bar_w / 2.0, plot.bottom())), CornerRadius { nw: 2, ne: 2, sw: 0, se: 0 }, pal().rx);
         }
         if b.tx > 0 {
             let bottom = rx_top - if b.rx > 0 { 2.0 } else { 0.0 };
             let top_y = total_top.min(bottom - 1.0);
-            painter.rect_filled(Rect::from_min_max(Pos2::new(cx - bar_w / 2.0, top_y), Pos2::new(cx + bar_w / 2.0, bottom)), CornerRadius { nw: 2, ne: 2, sw: 0, se: 0 }, TX);
+            painter.rect_filled(Rect::from_min_max(Pos2::new(cx - bar_w / 2.0, top_y), Pos2::new(cx + bar_w / 2.0, bottom)), CornerRadius { nw: 2, ne: 2, sw: 0, se: 0 }, pal().tx);
         }
         if bars.len() <= 14 || i % 5 == 0 || i + 1 == bars.len() {
-            painter.text(Pos2::new(cx, plot.bottom() + 6.0), Align2::CENTER_TOP, &b.label, body(11.0), MUTED);
+            painter.text(Pos2::new(cx, plot.bottom() + 6.0), Align2::CENTER_TOP, &b.label, body(11.0), pal().muted);
         }
     }
     if let Some(i) = hover_idx {
         if let Some(b) = bars.get(i) {
             egui::Tooltip::always_open(ui.ctx().clone(), ui.layer_id(), ui.scope_id().with("day_tip"), egui::PopupAnchor::Pointer).show(|ui| {
-                ui.label(egui::RichText::new(&b.full_date).color(MUTED).size(12.0));
-                legend_value(ui, RX, "Reçu", &fmt_bytes(b.rx));
-                legend_value(ui, TX, "Envoyé", &fmt_bytes(b.tx));
+                ui.label(egui::RichText::new(&b.full_date).color(pal().muted).size(12.0));
+                legend_value(ui, pal().rx, "Reçu", &fmt_bytes(b.rx));
+                legend_value(ui, pal().tx, "Envoyé", &fmt_bytes(b.tx));
             });
         }
     }

@@ -363,6 +363,11 @@ pub struct CaptureStatus {
     pub kernel_drops: u64,
     pub seen_packets: u64,
     pub seen_bytes: u64,
+    /// La fenêtre est reliée au service de capture.
+    pub service: bool,
+    pub service_stats: crate::proto::ServiceStats,
+    /// Depuis quand la fenêtre reçoit le service en direct : avant, seul l'historique en parle.
+    pub service_live_since_us: u64,
 }
 
 // ---------- Consommation enregistrée ----------
@@ -478,8 +483,13 @@ pub struct Model {
     pub packets: VecDeque<Arc<PacketRow>>,
     pub packets_bytes: usize,
     pub next_packet_id: u64,
-    pub paused: bool,
+    /// Sur une vue figée : l'instant où elle a été prise.
+    pub frozen_at: Option<f64>,
     pub capture: CaptureStatus,
+    /// Fichiers de l'historique déjà affichés dans la liste des paquets.
+    pub history_loaded: std::collections::HashSet<std::path::PathBuf>,
+    /// Paquets relus depuis l'historique : ils ne comptent ni dans les débits ni dans la consommation.
+    pub replaying: bool,
     pub dns_names: HashMap<IpAddr, String>,
     pub streams: HashMap<StreamKey, Stream>,
     pub keylog: KeyLog,
@@ -514,8 +524,10 @@ impl Model {
             packets: VecDeque::new(),
             packets_bytes: 0,
             next_packet_id: 1,
-            paused: false,
+            frozen_at: None,
             capture: CaptureStatus::default(),
+            history_loaded: Default::default(),
+            replaying: false,
             dns_names: HashMap::new(),
             streams: HashMap::new(),
             keylog: KeyLog::default(),
@@ -527,7 +539,40 @@ impl Model {
     }
 
     pub fn now(&self) -> f64 {
-        self.started.elapsed().as_secs_f64()
+        self.frozen_at.unwrap_or_else(|| self.started.elapsed().as_secs_f64())
+    }
+
+    /// Une copie de ce que montrent les listes, qui ne bouge plus. La vraie mesure continue à côté.
+    pub fn frozen_view(&self) -> Model {
+        Model {
+            started: self.started,
+            ifaces: self.ifaces.clone(),
+            ifindex: self.ifindex.clone(),
+            total_history: VecDeque::new(),
+            local_ips: self.local_ips.clone(),
+            ip_iface: self.ip_iface.clone(),
+            flows: self.flows.clone(),
+            listeners: self.listeners.clone(),
+            procs: self.procs.clone(),
+            app_hist: self.app_hist.clone(),
+            app_session: self.app_session.clone(),
+            pid_session: self.pid_session.clone(),
+            events: self.events.clone(),
+            packets: VecDeque::new(),
+            packets_bytes: 0,
+            next_packet_id: self.next_packet_id,
+            frozen_at: Some(self.now()),
+            capture: self.capture.clone(),
+            history_loaded: Default::default(),
+            replaying: false,
+            dns_names: self.dns_names.clone(),
+            streams: HashMap::new(),
+            keylog: KeyLog::default(),
+            usage: Usage::default(),
+            tick_id: self.tick_id,
+            sample_count: self.sample_count,
+            uid_names: self.uid_names.clone(),
+        }
     }
 
     pub fn counted_names(&self) -> HashSet<String> {
@@ -820,8 +865,11 @@ impl Model {
             return;
         }
         let now = self.now();
-        self.capture.seen_packets += 1;
-        self.capture.seen_bytes += p.orig_len as u64;
+        let replaying = self.replaying;
+        if !replaying {
+            self.capture.seen_packets += 1;
+            self.capture.seen_bytes += p.orig_len as u64;
+        }
 
         if let Some(m) = &p.dns {
             if m.response {
@@ -846,7 +894,9 @@ impl Model {
                 let s_local = self.local_ips.contains(&src);
                 let d_local = self.local_ips.contains(&dst);
                 let len = p.orig_len as u64;
-                if is_lo || (s_local && d_local) {
+                if replaying {
+                    // Déjà compté quand il est passé : on l'affiche seulement.
+                } else if is_lo || (s_local && d_local) {
                     let a = self.account(&p, s, d, len, true, &iface, now);
                     let b = self.account(&p, d, s, len, false, &iface, now);
                     if let Some(x) = a.or(b) {
@@ -888,9 +938,6 @@ impl Model {
             }
         }
 
-        if self.paused {
-            return;
-        }
         let bytes = p.data.len() + 256;
         let row = PacketRow { id: self.next_packet_id, pkt: p, iface, app, pid, stream };
         self.next_packet_id += 1;
@@ -1073,6 +1120,12 @@ impl Model {
     pub fn clear_packets(&mut self) {
         self.packets.clear();
         self.packets_bytes = 0;
+        self.history_loaded.clear();
+    }
+
+    /// Remet la liste dans l'ordre du temps après la relecture d'un fichier de l'historique.
+    pub fn sort_packets_by_time(&mut self) {
+        self.packets.make_contiguous().sort_by_key(|r| r.pkt.ts_us);
     }
 }
 

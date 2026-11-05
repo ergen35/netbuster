@@ -29,15 +29,15 @@ struct Node {
 
 fn hop_status(h: &Hop) -> (Color32, bool, &'static str) {
     if h.ips.is_empty() {
-        return (MUTED, true, "Ne répond pas");
+        return (pal().muted, true, "Ne répond pas");
     }
     let l = h.loss_pct();
     if l >= 20.0 {
-        (CRITICAL, false, "Pertes élevées")
+        (pal().critical, false, "Pertes élevées")
     } else if l > 0.0 {
-        (WARNING, false, "Quelques pertes")
+        (pal().warning, false, "Quelques pertes")
     } else {
-        (GOOD, false, "Sans perte")
+        (pal().good, false, "Sans perte")
     }
 }
 
@@ -48,7 +48,7 @@ fn build_nodes(app: &App, st: &TraceState, hops: &[Hop]) -> Vec<Node> {
         subtitle: st.iface.clone().map(|i| format!("Par {i}")).unwrap_or_else(|| "Départ".into()),
         metric: String::new(),
         provider: None,
-        color: RX,
+        color: pal().rx,
         hollow: false,
         hop_index: None,
         sym: Some(icon::DESKTOP),
@@ -110,9 +110,9 @@ fn route_graph(app: &mut App, ui: &mut Ui, nodes: &[Node]) {
         let (a, b) = (center_of(i), center_of(j));
         let (lx, rx) = (a.x.min(b.x) - slot * 0.46, a.x.max(b.x) + slot * 0.46);
         let band = Rect::from_min_max(Pos2::new(lx, a.y - 40.0), Pos2::new(rx, a.y + 80.0));
-        painter.rect_filled(band, CornerRadius::same(8), Color32::from_rgb(0x21, 0x21, 0x1f));
+        painter.rect_filled(band, CornerRadius::same(8), pal().band);
         let text_rect = Rect::from_min_max(Pos2::new(band.left() + 2.0, band.top() + 1.0), Pos2::new(band.right() - 2.0, band.top() + 19.0));
-        cell(ui, text_rect, &p, &bold(11.5), INK2, false);
+        cell(ui, text_rect, &p, &bold(11.5), pal().ink2, false);
         i = j + 1;
     }
 
@@ -120,7 +120,7 @@ fn route_graph(app: &mut App, ui: &mut Ui, nodes: &[Node]) {
     for w in 0..nodes.len().saturating_sub(1) {
         let (a, b) = (center_of(w), center_of(w + 1));
         let silent = nodes[w + 1].hollow || nodes[w].hollow;
-        let stroke = Stroke::new(2.0, if silent { AXIS } else { Color32::from_rgb(0x5b, 0x5a, 0x55) });
+        let stroke = Stroke::new(2.0, if silent { pal().axis } else { pal().connector });
         if (a.y - b.y).abs() < 1.0 {
             painter.line_segment([a, b], stroke);
         } else {
@@ -138,12 +138,12 @@ fn route_graph(app: &mut App, ui: &mut Ui, nodes: &[Node]) {
         let resp = ui.interact(hit, ui.scope_id().with(("hop", i)), Sense::click());
         let selected = n.hop_index.is_some() && app.trace.selected_hop == n.hop_index;
         if selected {
-            painter.circle_stroke(c, radius + 5.0, Stroke::new(2.0, INK));
+            painter.circle_stroke(c, radius + 5.0, Stroke::new(2.0, pal().ink));
         }
         if n.hollow {
-            painter.circle(c, radius, SURFACE, Stroke::new(2.0, MUTED));
+            painter.circle(c, radius, pal().surface, Stroke::new(2.0, pal().muted));
         } else {
-            painter.circle(c, radius, n.color, Stroke::new(3.0, SURFACE));
+            painter.circle(c, radius, n.color, Stroke::new(3.0, pal().surface));
         }
         if let Some(s) = n.sym {
             painter.text(c, egui::Align2::CENTER_CENTER, s, body(15.0), Color32::WHITE);
@@ -158,13 +158,13 @@ fn route_graph(app: &mut App, ui: &mut Ui, nodes: &[Node]) {
             };
             painter.galley(Pos2::new(r.center().x - g.size().x / 2.0, r.top()), g, color);
         };
-        line(20.0, &n.title, bold(12.0), INK);
+        line(20.0, &n.title, bold(12.0), pal().ink);
         if let Some(ip) = n.ip {
-            line(36.0, &ip.to_string(), mono(11.5), INK2);
+            line(36.0, &ip.to_string(), mono(11.5), pal().ink2);
         }
-        line(if n.ip.is_some() { 52.0 } else { 36.0 }, &n.subtitle, body(11.5), MUTED);
+        line(if n.ip.is_some() { 52.0 } else { 36.0 }, &n.subtitle, body(11.5), pal().muted);
         if !n.metric.is_empty() {
-            line(if n.ip.is_some() { 67.0 } else { 52.0 }, &n.metric, body(11.5), INK2);
+            line(if n.ip.is_some() { 67.0 } else { 52.0 }, &n.metric, body(11.5), pal().ink2);
         }
         if n.hop_index.is_some() && resp.hovered() {
             ui.ctx().set_cursor_icon(egui::CursorIcon::PointingHand);
@@ -187,7 +187,7 @@ pub fn traceroute(app: &mut App, ui: &mut Ui) {
         let enter = edit.lost_focus() && ui.input(|i| i.key_pressed(egui::Key::Enter));
         chips(ui, &mut app.trace.mode, &[(TraceModeChoice::Icmp, "Ping"), (TraceModeChoice::Udp, "UDP"), (TraceModeChoice::Tcp, "TCP")]);
         if app.trace.mode == TraceModeChoice::Tcp {
-            ui.label(RichText::new("port").color(MUTED).size(12.5));
+            ui.label(RichText::new("port").color(pal().muted).size(12.5));
             ui.add(egui::TextEdit::singleline(&mut app.trace.tcp_port).desired_width(52.0));
         }
         let can_start = !app.trace.target.trim().is_empty();
@@ -199,20 +199,20 @@ pub fn traceroute(app: &mut App, ui: &mut Ui) {
                 shared.tracer.start(&app.trace.target, app.iface.clone(), app.trace_mode());
                 app.trace.selected_hop = None;
             }
-        } else if (ui.add_enabled(can_start, egui::Button::new(RichText::new(format!("{} Tracer", icon::PLAY)).color(Color32::WHITE)).fill(PRIMARY)).clicked() || enter) && can_start {
+        } else if (ui.add_enabled(can_start, egui::Button::new(RichText::new(format!("{} Tracer", icon::PLAY)).color(Color32::WHITE)).fill(pal().primary)).clicked() || enter) && can_start {
             shared.tracer.start(&app.trace.target, app.iface.clone(), app.trace_mode());
             app.trace.selected_hop = None;
         }
         if running {
             ui.add(egui::Spinner::new().size(14.0));
-            ui.label(RichText::new(format!("Mesure en continu depuis {}", fmt_duration(started.map(|s| s.elapsed().as_secs_f64()).unwrap_or(0.0)))).color(INK2).size(12.5));
+            ui.label(RichText::new(format!("Mesure en continu depuis {}", fmt_duration(started.map(|s| s.elapsed().as_secs_f64()).unwrap_or(0.0)))).color(pal().ink2).size(12.5));
         }
     });
     ui.add_space(4.0);
     if let Some(e) = error {
         ui.horizontal(|ui| {
-            ui.label(RichText::new(icon::WARNING).color(CRITICAL_TEXT));
-            ui.add(egui::Label::new(RichText::new(e).color(CRITICAL_TEXT)).wrap());
+            ui.label(RichText::new(icon::WARNING).color(pal().critical_text));
+            ui.add(egui::Label::new(RichText::new(e).color(pal().critical_text)).wrap());
         });
     }
 
@@ -226,9 +226,9 @@ pub fn traceroute(app: &mut App, ui: &mut Ui) {
     if target_name.is_empty() {
         ui.add_space(30.0);
         ui.vertical_centered(|ui| {
-            ui.label(RichText::new(icon::PATH).size(44.0).color(AXIS));
-            ui.label(RichText::new("Aucun trajet en cours").font(bold(15.0)).color(INK2));
-            ui.label(RichText::new("Saisissez une adresse ci-dessus, ou cliquez sur « Tracer » à côté d'une connexion.").color(MUTED));
+            ui.label(RichText::new(icon::PATH).size(44.0).color(pal().axis));
+            ui.label(RichText::new("Aucun trajet en cours").font(bold(15.0)).color(pal().ink2));
+            ui.label(RichText::new("Saisissez une adresse ci-dessus, ou cliquez sur « Tracer » à côté d'une connexion.").color(pal().muted));
         });
         return;
     }
@@ -244,11 +244,11 @@ pub fn traceroute(app: &mut App, ui: &mut Ui) {
                 ui.with_layout(Layout::right_to_left(Align::Center), |ui| {
                     if !source.is_empty() {
                         if reached {
-                            status_badge(ui, icon::CHECK_CIRCLE, GOOD, "Destination atteinte");
+                            status_badge(ui, icon::CHECK_CIRCLE, pal().good, "Destination atteinte");
                         } else if running {
-                            status_badge(ui, icon::HOURGLASS, MUTED, "Destination pas encore atteinte");
+                            status_badge(ui, icon::HOURGLASS, pal().muted, "Destination pas encore atteinte");
                         } else {
-                            status_badge(ui, icon::X_CIRCLE, MUTED, "Destination non atteinte");
+                            status_badge(ui, icon::X_CIRCLE, pal().muted, "Destination non atteinte");
                         }
                     }
                 });
@@ -256,10 +256,10 @@ pub fn traceroute(app: &mut App, ui: &mut Ui) {
             ui.add_space(6.0);
             route_graph(app, ui, &nodes);
             ui.horizontal(|ui| {
-                chart::legend_value(ui, GOOD, "Sans perte", "");
-                chart::legend_value(ui, WARNING, "Quelques pertes", "");
-                chart::legend_value(ui, CRITICAL, "20 % de pertes ou plus", "");
-                chart::legend_value(ui, MUTED, "Ne répond pas", "");
+                chart::legend_value(ui, pal().good, "Sans perte", "");
+                chart::legend_value(ui, pal().warning, "Quelques pertes", "");
+                chart::legend_value(ui, pal().critical, "20 % de pertes ou plus", "");
+                chart::legend_value(ui, pal().muted, "Ne répond pas", "");
             });
             hint(ui, "Beaucoup de routeurs limitent leurs réponses à ces sondes : des pertes sur une étape intermédiaire ne gênent pas forcément le trafic si les étapes suivantes n'en ont pas.");
         });
@@ -272,7 +272,7 @@ fn hop_table(app: &mut App, ui: &mut Ui, hops: &[Hop]) {
     section_title(ui, "Détail de chaque étape");
     let cols = [
         col_r("Étape", 50.0),
-        col("Adresse", 150.0),
+        col("Adresse", 170.0),
         flex("Nom", 1.0),
         flex("Opérateur", 1.0),
         col("Pays", 46.0),
@@ -291,21 +291,24 @@ fn hop_table(app: &mut App, ui: &mut Ui, hops: &[Hop]) {
         let selected = app.trace.selected_hop == Some(i);
         let (rect, resp) = table_row(ui, 30.0, selected, &format!("Étape {}", i + 1));
         let r = col_rects(rect, &cols);
-        cell(ui, r[0], &(i + 1).to_string(), &mono(12.0), INK, true);
-        cell(ui, r[1], &ip.map(|x| x.to_string()).unwrap_or_else(|| "Pas de réponse".into()), &mono(12.0), if ip.is_some() { INK2 } else { MUTED }, false);
-        cell(ui, r[2], info.as_ref().and_then(|x| x.rdns.as_deref()).unwrap_or(""), &body(12.5), INK2, false);
+        cell(ui, r[0], &(i + 1).to_string(), &mono(12.0), pal().ink, true);
+        match ip {
+            Some(a) => ip_cell(ui, r[1], &a.to_string(), &a.to_string(), &mono(12.0), pal().ink2),
+            None => cell(ui, r[1], "Pas de réponse", &mono(12.0), pal().muted, false),
+        }
+        cell(ui, r[2], info.as_ref().and_then(|x| x.rdns.as_deref()).unwrap_or(""), &body(12.5), pal().ink2, false);
         let oper = match ip.map(ip_scope) {
             Some(IpScope::Public) | None => info.as_ref().and_then(|x| x.provider()).unwrap_or_default(),
             Some(s) => s.label().to_string(),
         };
-        cell(ui, r[3], &oper, &body(12.5), INK2, false);
-        cell(ui, r[4], info.as_ref().and_then(|x| x.as_info.as_ref()).map(|a| a.country.as_str()).unwrap_or(""), &body(12.0), INK2, false);
-        cell(ui, r[5], &format!("{:.0} %", h.loss_pct()), &mono(12.0), INK2, true);
+        cell(ui, r[3], &oper, &body(12.5), pal().ink2, false);
+        cell(ui, r[4], info.as_ref().and_then(|x| x.as_info.as_ref()).map(|a| a.country.as_str()).unwrap_or(""), &body(12.0), pal().ink2, false);
+        cell(ui, r[5], &format!("{:.0} %", h.loss_pct()), &mono(12.0), pal().ink2, true);
         if h.recv > 0 {
-            cell(ui, r[6], &fmt_ms(h.last_ms as f64), &mono(11.5), INK2, true);
-            cell(ui, r[7], &fmt_ms(h.avg_ms() as f64), &mono(11.5), INK, true);
-            cell(ui, r[8], &fmt_ms(h.best_ms as f64), &mono(11.5), INK2, true);
-            cell(ui, r[9], &fmt_ms(h.worst_ms as f64), &mono(11.5), INK2, true);
+            cell(ui, r[6], &fmt_ms(h.last_ms as f64), &mono(11.5), pal().ink2, true);
+            cell(ui, r[7], &fmt_ms(h.avg_ms() as f64), &mono(11.5), pal().ink, true);
+            cell(ui, r[8], &fmt_ms(h.best_ms as f64), &mono(11.5), pal().ink2, true);
+            cell(ui, r[9], &fmt_ms(h.worst_ms as f64), &mono(11.5), pal().ink2, true);
             let hist: std::collections::VecDeque<(f32, f32)> = h.history.iter().map(|v| (*v, 0.0)).collect();
             let painter_rect = r[10].shrink2(Vec2::new(4.0, 5.0));
             latency_spark(ui, painter_rect, &hist);
@@ -336,7 +339,7 @@ fn latency_spark(ui: &Ui, r: Rect, hist: &std::collections::VecDeque<(f32, f32)>
         .enumerate()
         .map(|(i, v)| Pos2::new(r.right() - (hist.len() - 1 - i) as f32 / (n - 1) as f32 * r.width(), r.bottom() - v.0 / max * r.height()))
         .collect();
-    ui.painter().add(egui::epaint::PathShape::line(pts, Stroke::new(1.25, RX)));
+    ui.painter().add(egui::epaint::PathShape::line(pts, Stroke::new(1.25, pal().rx)));
 }
 
 // ---------- IP et fournisseurs ----------
@@ -375,8 +378,9 @@ fn info_card(app: &mut App, ui: &mut Ui, ip: IpAddr) {
     card(ui, |ui| {
         ui.set_width(ui.available_width());
         ui.horizontal(|ui| {
-            ui.label(RichText::new(ip.to_string()).font(bold(17.0)).color(INK));
-            ui.label(RichText::new(scope.label()).color(INK2));
+            copy_inline(ui, &ip.to_string());
+            ui.label(RichText::new(ip.to_string()).font(bold(17.0)).color(pal().ink));
+            ui.label(RichText::new(scope.label()).color(pal().ink2));
             ui.with_layout(Layout::right_to_left(Align::Center), |ui| {
                 if small_button(ui, icon::X).on_hover_text("Fermer cette fiche").clicked() {
                     app.ip.selected = None;
@@ -396,7 +400,7 @@ fn info_card(app: &mut App, ui: &mut Ui, ip: IpAddr) {
             ui.allocate_ui_with_layout(Vec2::new(half, 110.0), Layout::top_down(Align::Min), |ui| {
                 ui.set_width(half);
                 ui.spacing_mut().item_spacing.y = 2.0;
-                ui.label(RichText::new("Opérateur du réseau").font(bold(12.5)).color(INK));
+                ui.label(RichText::new("Opérateur du réseau").font(bold(12.5)).color(pal().ink));
                 if let Some(a) = &info.as_info {
                     kv(ui, "Fournisseur", &a.provider());
                     kv(ui, "Réseau (AS)", &format!("AS{}", a.asn));
@@ -408,7 +412,7 @@ fn info_card(app: &mut App, ui: &mut Ui, ip: IpAddr) {
                 } else {
                     ui.horizontal(|ui| {
                         ui.add(egui::Spinner::new().size(13.0));
-                        ui.label(RichText::new("Recherche…").color(INK2));
+                        ui.label(RichText::new("Recherche…").color(pal().ink2));
                     });
                 }
                 if let Some(n) = &info.rdns {
@@ -420,7 +424,7 @@ fn info_card(app: &mut App, ui: &mut Ui, ip: IpAddr) {
             });
             ui.allocate_ui_with_layout(Vec2::new(half - 12.0, 110.0), Layout::top_down(Align::Min), |ui| {
                 ui.spacing_mut().item_spacing.y = 2.0;
-                ui.label(RichText::new("Fiche du registre").font(bold(12.5)).color(INK));
+                ui.label(RichText::new("Fiche du registre").font(bold(12.5)).color(pal().ink));
                 if let Some(r) = &info.rdap {
                     kv(ui, "Organisation", if r.organisation.is_empty() { "—" } else { &r.organisation });
                     kv(ui, "Nom du réseau", &r.name);
@@ -437,11 +441,11 @@ fn info_card(app: &mut App, ui: &mut Ui, ip: IpAddr) {
                 } else if info.rdap_pending {
                     ui.horizontal(|ui| {
                         ui.add(egui::Spinner::new().size(13.0));
-                        ui.label(RichText::new("Interrogation du registre…").color(INK2));
+                        ui.label(RichText::new("Interrogation du registre…").color(pal().ink2));
                     });
                 } else {
                     if let Some(e) = &info.rdap_error {
-                        ui.add(egui::Label::new(RichText::new(e).color(CRITICAL_TEXT).size(12.5)).wrap());
+                        ui.add(egui::Label::new(RichText::new(e).color(pal().critical_text).size(12.5)).wrap());
                     }
                     if ui.button("Consulter le registre").clicked() {
                         shared.enrich.request_rdap(ip);
@@ -470,7 +474,7 @@ pub fn ip_page(app: &mut App, ui: &mut Ui) {
             }
         }
         if let Some(e) = &app.ip.error {
-            ui.label(RichText::new(e).color(CRITICAL_TEXT));
+            ui.label(RichText::new(e).color(pal().critical_text));
         }
         ui.with_layout(Layout::right_to_left(Align::Center), |ui| {
             let mut auto = shared.enrich.auto.load(std::sync::atomic::Ordering::Relaxed);
@@ -487,8 +491,10 @@ pub fn ip_page(app: &mut App, ui: &mut Ui) {
         ui.add_space(4.0);
     }
 
-    let m = shared.model.lock().unwrap();
-    let seen = seen_ips(&m, app.iface.as_deref());
+    let live = shared.model.lock().unwrap();
+    let frozen = app.ip.freeze.view.clone();
+    let m: &Model = frozen.as_deref().unwrap_or(&live);
+    let seen = seen_ips(m, app.iface.as_deref());
     let mut rows: Vec<(IpAddr, &SeenIp, IpInfo)> = seen.iter().map(|(ip, s)| (*ip, s, shared.enrich.info(*ip).unwrap_or_default())).collect();
     let mut by_provider: BTreeMap<String, (u64, u64, usize)> = BTreeMap::new();
     for (ip, s, info) in &rows {
@@ -511,8 +517,8 @@ pub fn ip_page(app: &mut App, ui: &mut Ui) {
             ui.set_min_height(ui.available_height() - 30.0);
             section_title(ui, "Fournisseurs contactés");
             ui.horizontal(|ui| {
-                chart::legend_value(ui, RX, "Reçu", "");
-                chart::legend_value(ui, TX, "Envoyé", "");
+                chart::legend_value(ui, pal().rx, "Reçu", "");
+                chart::legend_value(ui, pal().tx, "Envoyé", "");
             });
             ui.add_space(2.0);
             let scale = providers.iter().map(|(_, v)| (v.0 + v.1) as f64).fold(0.0, f64::max);
@@ -520,8 +526,8 @@ pub fn ip_page(app: &mut App, ui: &mut Ui) {
                 for (name, (rx, tx, conns)) in &providers {
                     ui.add_space(5.0);
                     ui.spacing_mut().item_spacing.y = 2.0;
-                    ui.add(egui::Label::new(RichText::new(name).color(INK).size(12.5)).truncate());
-                    ui.label(RichText::new(format!("{}  ·  {}", fmt_bytes(rx + tx), plural(*conns, "connexion"))).color(MUTED).size(11.5));
+                    ui.add(egui::Label::new(RichText::new(name).color(pal().ink).size(12.5)).truncate());
+                    ui.label(RichText::new(format!("{}  ·  {}", fmt_bytes(rx + tx), plural(*conns, "connexion"))).color(pal().muted).size(11.5));
                     let (rect, _) = ui.allocate_exact_size(Vec2::new(ui.available_width(), 8.0), Sense::hover());
                     chart::split_bar(ui, rect, *rx as f64, *tx as f64, scale);
                 }
@@ -532,6 +538,7 @@ pub fn ip_page(app: &mut App, ui: &mut Ui) {
     ui.horizontal(|ui| {
         section_title(ui, "Adresses contactées");
         search_box(ui, &mut app.ip.search, "Adresse, nom, opérateur…", 220.0);
+        freeze_button(ui, &mut app.ip.freeze, &live);
     });
     let q = app.ip.search.to_lowercase();
     if !q.is_empty() {
@@ -570,14 +577,14 @@ pub fn ip_page(app: &mut App, ui: &mut Ui) {
             let selected = app.ip.selected == Some(*ip);
             let (rect, resp) = table_row(ui, 30.0, selected, &ip.to_string());
             let r = col_rects(rect, &cols);
-            cell(ui, r[0], &ip.to_string(), &mono(12.0), INK, false);
-            cell(ui, r[1], &name_of(s, info), &body(12.5), INK2, false);
+            ip_cell(ui, r[0], &ip.to_string(), &ip.to_string(), &mono(12.0), pal().ink);
+            cell(ui, r[1], &name_of(s, info), &body(12.5), pal().ink2, false);
             let scope = ip_scope(*ip);
             let provider = if scope == IpScope::Public { info.provider().unwrap_or_else(|| if info.done { "Inconnu".into() } else { "…".into() }) } else { scope.label().to_string() };
-            cell(ui, r[2], &provider, &body(12.5), INK2, false);
-            cell(ui, r[3], info.as_info.as_ref().map(|a| a.country.as_str()).unwrap_or(""), &body(12.0), INK2, false);
-            cell(ui, r[4], &s.conns.to_string(), &mono(12.0), INK2, true);
-            cell(ui, r[5], &fmt_bytes(s.rx + s.tx), &mono(12.0), INK2, true);
+            cell(ui, r[2], &provider, &body(12.5), pal().ink2, false);
+            cell(ui, r[3], info.as_info.as_ref().map(|a| a.country.as_str()).unwrap_or(""), &body(12.0), pal().ink2, false);
+            cell(ui, r[4], &s.conns.to_string(), &mono(12.0), pal().ink2, true);
+            cell(ui, r[5], &fmt_bytes(s.rx + s.tx), &mono(12.0), pal().ink2, true);
             if resp.clicked() {
                 app.ip.selected = Some(*ip);
                 app.ip.query = ip.to_string();
@@ -625,10 +632,10 @@ pub fn usage(app: &mut App, ui: &mut Ui) {
         card(ui, |ui| {
             ui.horizontal(|ui| {
                 section_title(ui, "Volume par jour");
-                ui.label(RichText::new(iface.clone().unwrap_or_else(|| "Toutes les interfaces".into())).color(MUTED).size(12.5));
+                ui.label(RichText::new(iface.clone().unwrap_or_else(|| "Toutes les interfaces".into())).color(pal().muted).size(12.5));
                 ui.add_space(10.0);
-                chart::legend_value(ui, RX, "Reçu", "");
-                chart::legend_value(ui, TX, "Envoyé", "");
+                chart::legend_value(ui, pal().rx, "Reçu", "");
+                chart::legend_value(ui, pal().tx, "Envoyé", "");
             });
             let bars: Vec<chart::DayBar> = (0..30)
                 .rev()
@@ -672,10 +679,10 @@ pub fn usage(app: &mut App, ui: &mut Ui) {
                         for (n, v) in list.iter().take(12) {
                             let (rect, _) = table_row(ui, 26.0, false, n);
                             let r = col_rects(rect, &cols);
-                            cell(ui, r[0], n, &body(12.5), INK, false);
+                            cell(ui, r[0], n, &body(12.5), pal().ink, false);
                             chart::split_bar(ui, r[1].shrink2(Vec2::new(4.0, 0.0)), v.0 as f64, v.1 as f64, scale);
-                            cell(ui, r[2], &fmt_bytes(v.0), &mono(11.5), INK2, true);
-                            cell(ui, r[3], &fmt_bytes(v.1), &mono(11.5), INK2, true);
+                            cell(ui, r[2], &fmt_bytes(v.0), &mono(11.5), pal().ink2, true);
+                            cell(ui, r[3], &fmt_bytes(v.1), &mono(11.5), pal().ink2, true);
                         }
                     }
                 });
@@ -692,11 +699,11 @@ pub fn usage(app: &mut App, ui: &mut Ui) {
                         let v = m.usage.days.get(&today_key).and_then(|d| d.ifaces.get(&i.name)).copied().unwrap_or((0, 0));
                         let (rect, _) = table_row(ui, 26.0, false, &i.name);
                         let r = col_rects(rect, &cols);
-                        cell(ui, r[0], &i.name, &body(12.5), INK, false);
-                        cell(ui, r[1], &fmt_bytes(v.0), &mono(11.5), INK2, true);
-                        cell(ui, r[2], &fmt_bytes(v.1), &mono(11.5), INK2, true);
-                        cell(ui, r[3], &fmt_bytes(i.rx_total), &mono(11.5), INK2, true);
-                        cell(ui, r[4], &fmt_bytes(i.tx_total), &mono(11.5), INK2, true);
+                        cell(ui, r[0], &i.name, &body(12.5), pal().ink, false);
+                        cell(ui, r[1], &fmt_bytes(v.0), &mono(11.5), pal().ink2, true);
+                        cell(ui, r[2], &fmt_bytes(v.1), &mono(11.5), pal().ink2, true);
+                        cell(ui, r[3], &fmt_bytes(i.rx_total), &mono(11.5), pal().ink2, true);
+                        cell(ui, r[4], &fmt_bytes(i.tx_total), &mono(11.5), pal().ink2, true);
                     }
                     hint(ui, "Les totaux sont ceux du système depuis le démarrage du PC. Le total général ne compte que les cartes physiques, pour ne pas compter deux fois le trafic des conteneurs.");
                 });
