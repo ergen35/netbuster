@@ -4,11 +4,14 @@ pub mod admin;
 pub mod collect;
 pub mod desktop;
 pub mod enrich;
+#[cfg(target_os = "linux")]
 pub mod helper;
 pub mod manage;
+#[cfg(unix)]
 pub mod mockkit;
 pub mod model;
 pub mod packet;
+pub mod platform;
 pub mod proto;
 pub mod service;
 pub mod ss;

@@ -1,10 +1,11 @@
 //! Pare-feu, configuration réseau et SSH : lecture de l'état et actions confirmées par la personne.
 
 use crate::admin::Admin;
-use crate::helper::SSHD_DROPIN;
 use crate::util::{home_dir, run, ssh_fingerprint, which, CmdResult};
 use std::collections::BTreeMap;
 use std::net::IpAddr;
+
+pub const SSHD_DROPIN: &str = "/etc/ssh/sshd_config.d/00-netbuster.conf";
 
 // ---------- Actions ----------
 
@@ -81,11 +82,10 @@ impl Step {
 }
 
 fn write_private_file(path: &str, content: &str) -> std::io::Result<()> {
-    use std::os::unix::fs::OpenOptionsExt;
     let tmp = format!("{path}.netbuster-tmp");
     {
         use std::io::Write;
-        let mut f = std::fs::OpenOptions::new().write(true).create(true).truncate(true).mode(0o600).open(&tmp)?;
+        let mut f = crate::util::private_file_options().write(true).create(true).truncate(true).open(&tmp)?;
         f.write_all(content.as_bytes())?;
     }
     std::fs::rename(tmp, path)

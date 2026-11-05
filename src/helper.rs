@@ -7,19 +7,20 @@
 //! `--mock <dossier>` (tests, refusé en root) remplace les programmes par ceux du dossier et lit
 //! les paquets depuis `<dossier>/frames.bin`, pour tout vérifier sans toucher au système.
 
+use crate::manage::SSHD_DROPIN;
 use crate::proto::*;
+pub use crate::util::now_us;
 use std::io::{BufRead, BufWriter, Write};
 use std::path::{Path, PathBuf};
 use std::process::{Command, Stdio};
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{Arc, Mutex};
-use std::time::{Duration, Instant, SystemTime, UNIX_EPOCH};
+use std::time::{Duration, Instant};
 
 pub const ALLOWED_PROGRAMS: &[&str] = &[
     "iptables", "ip6tables", "nft", "ufw", "ip", "ss", "systemctl", "kill", "nmcli", "sshd", "journalctl", "apt-get",
     "resolvectl",
 ];
-pub const SSHD_DROPIN: &str = "/etc/ssh/sshd_config.d/00-netbuster.conf";
 const SYSTEM_DIRS: &[&str] = &["/usr/sbin", "/usr/bin", "/sbin", "/bin"];
 
 type Out = Arc<Mutex<BufWriter<std::io::Stdout>>>;
@@ -187,10 +188,6 @@ fn write_file(id: u64, path: &str, content: &str, mock: Option<&Path>) -> Reply 
         Ok(()) => Reply { id, ok: true, ..Default::default() },
         Err(e) => Reply { id, ok: false, code: 1, stderr: e.to_string(), ..Default::default() },
     }
-}
-
-pub fn now_us() -> u64 {
-    SystemTime::now().duration_since(UNIX_EPOCH).map(|d| d.as_micros() as u64).unwrap_or(0)
 }
 
 #[repr(C)]

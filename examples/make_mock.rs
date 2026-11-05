@@ -1,6 +1,10 @@
 //! Prépare un dossier pour le mode test de l'assistant. Rien ne touche au système.
 //! Usage : cargo run --example make_mock -- <dossier> <ip locale> <numéro d'interface>
 
+#[cfg(not(unix))]
+fn main() {}
+
+#[cfg(unix)]
 fn main() {
     let args: Vec<String> = std::env::args().collect();
     let me: Vec<u8> = args[2].split('.').map(|x| x.parse().unwrap()).collect();

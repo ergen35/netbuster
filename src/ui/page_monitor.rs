@@ -180,6 +180,10 @@ fn top_apps(app: &mut App, ui: &mut Ui, m: &Model, iface: Option<&str>) {
             }
         });
     });
+    if !crate::platform::full_features() {
+        hint(ui, &format!("Sous {}, le volume de chaque programme n'est pas encore mesuré. Leurs connexions sont dans l'écran Applications.", crate::platform::system_name()));
+        return;
+    }
     let tree = m.app_tree(iface, false, false);
     if tree.is_empty() {
         hint(ui, "Aucune application n'échange de données pour le moment.");
@@ -301,15 +305,23 @@ pub fn apps(app: &mut App, ui: &mut Ui) {
         ui.checkbox(&mut app.apps.show_local, "Boucle locale").on_hover_text("Le trafic qu'un programme échange avec un autre programme de ce PC.");
         freeze_button(ui, &mut app.apps.freeze, &live);
         ui.with_layout(Layout::right_to_left(Align::Center), |ui| {
-            let (text, c) = if capturing { ("Mesure au paquet près, TCP et UDP", pal().good) } else { ("Mesure par compteurs TCP", pal().warning) };
-            status_badge(ui, if capturing { icon::CHECK_CIRCLE } else { icon::INFO }, c, text);
+            if crate::platform::full_features() {
+                let (text, c) = if capturing { ("Mesure au paquet près, TCP et UDP", pal().good) } else { ("Mesure par compteurs TCP", pal().warning) };
+                status_badge(ui, if capturing { icon::CHECK_CIRCLE } else { icon::INFO }, c, text);
+            }
         });
     });
     if !capturing {
         let (rx, tx) = m.current_rates(iface.as_deref());
         let attributed: (f64, f64) = tree.iter().fold((0.0, 0.0), |s, a| (s.0 + a.rx_rate, s.1 + a.tx_rate));
         let missing = (rx - attributed.0).max(0.0) + (tx - attributed.1).max(0.0);
-        if iface.as_deref() != Some("lo") && missing > 2048.0 {
+        if !crate::platform::full_features() {
+            let t = format!(
+                "Sous {}, NetBuster mesure le débit de chaque interface et liste les connexions de chaque programme, mais pas encore le volume de chaque programme.",
+                crate::platform::system_name()
+            );
+            notice(ui, icon::INFO, pal().rx, "Débits par interface", &t, None);
+        } else if iface.as_deref() != Some("lo") && missing > 2048.0 {
             let t = format!(
                 "{} ne sont liés à aucun programme : c'est du trafic UDP (HTTP/3, visioconférence, DNS), des en-têtes, ou le trafic de services système. Le mode administrateur mesure tout, paquet par paquet.",
                 fmt_rate(missing)
@@ -480,10 +492,10 @@ pub fn flow_detail(app: &mut App, ui: &mut Ui, m: &Model, f: &Flow) -> bool {
                 if small_button(ui, icon::X).on_hover_text("Fermer cette fiche").clicked() {
                     close = true;
                 }
-                if f.open && !f.is_listener() {
+                if crate::platform::full_features() && f.open && !f.is_listener() {
                     if let Some(pid) = f.pid {
                         if small_button(ui, "Arrêter le programme").clicked() {
-                            let mine = f.uid == Some(unsafe { libc::getuid() });
+                            let mine = f.uid == crate::platform::own_uid();
                             app.ask(manage::kill_process_action(pid, &f.app_name(), !mine));
                         }
                     }
@@ -491,7 +503,7 @@ pub fn flow_detail(app: &mut App, ui: &mut Ui, m: &Model, f: &Flow) -> bool {
                         app.ask(manage::kill_socket_action(&f.key.local.to_string(), &f.key.remote.to_string(), &f.app_name()));
                     }
                 }
-                if f.key.remote.port() != 0 && small_button(ui, "Voir ses paquets").clicked() {
+                if crate::platform::full_features() && f.key.remote.port() != 0 && small_button(ui, "Voir ses paquets").clicked() {
                     app.packets.flow_filter = Some(crate::model::StreamKey::new(f.key.proto, f.key.local, f.key.remote));
                     app.packets.selected = None;
                     app.page = Page::Packets;
@@ -683,7 +695,7 @@ pub fn connections(app: &mut App, ui: &mut Ui) {
 fn services() -> &'static HashMap<(u16, String), String> {
     static MAP: OnceLock<HashMap<(u16, String), String>> = OnceLock::new();
     MAP.get_or_init(|| {
-        let text = std::fs::read_to_string("/etc/services").unwrap_or_default();
+        let text = std::fs::read_to_string(crate::platform::services_file()).unwrap_or_default();
         let mut out = HashMap::new();
         for l in text.lines() {
             let l = l.split('#').next().unwrap_or("").trim();
@@ -727,7 +739,9 @@ pub fn ports(app: &mut App, ui: &mut Ui) {
         ui.add_space(6.0);
         status_badge(ui, icon::HOUSE, pal().good, &format!("{} limités à ce PC", plural(local_set.len(), "port")));
         ui.add_space(6.0);
-        status_badge(ui, icon::SHIELD_CHECK, if ufw_active { pal().good } else { pal().muted }, if ufw_active { "Pare-feu UFW actif" } else { "UFW inactif" });
+        if crate::platform::full_features() {
+            status_badge(ui, icon::SHIELD_CHECK, if ufw_active { pal().good } else { pal().muted }, if ufw_active { "Pare-feu UFW actif" } else { "UFW inactif" });
+        }
         ui.with_layout(Layout::right_to_left(Align::Center), |ui| {
             search_box(ui, &mut app.ports.search, "Port, programme…", 200.0);
             freeze_button(ui, &mut app.ports.freeze, &live);
@@ -735,6 +749,7 @@ pub fn ports(app: &mut App, ui: &mut Ui) {
     });
 
     // Formulaire : ouvrir ou fermer n'importe quel port.
+    if crate::platform::full_features() {
     ui.add_space(4.0);
     card(ui, |ui| {
         ui.horizontal(|ui| {
@@ -771,6 +786,7 @@ pub fn ports(app: &mut App, ui: &mut Ui) {
             }
         });
     });
+    }
     ui.add_space(4.0);
 
     let q = app.ports.search.to_lowercase();
@@ -832,8 +848,11 @@ pub fn ports(app: &mut App, ui: &mut Ui) {
             cell(ui, r[7], &clients.to_string(), &mono(12.0), pal().ink2, true);
             let proto = f.key.proto.label().to_lowercase();
             let scope = f.iface.clone().filter(|_| !f.key.local.ip().is_unspecified() && !f.key.local.ip().is_loopback());
-            let (pid, name, mine) = (f.pid, f.app_name(), f.uid == Some(unsafe { libc::getuid() }));
+            let (pid, name, mine) = (f.pid, f.app_name(), f.uid == crate::platform::own_uid());
             let is_docker = name.to_lowercase().contains("docker");
+            if !crate::platform::full_features() {
+                continue;
+            }
             in_cell(ui, r[8], |ui| {
                 ui.spacing_mut().item_spacing.x = 4.0;
                 if small_button(ui, "Fermer").on_hover_text("Bloque ce port dans le pare-feu").clicked() {

@@ -146,7 +146,8 @@ impl TraceState {
                 if !hop.ips.contains(&ip) {
                     hop.ips.push(ip);
                 }
-            } else if let Ok(ms) = t.parse::<f32>() {
+            } else if let Ok(ms) = t.strip_prefix('<').unwrap_or(t).parse::<f32>() {
+                // `tracert` écrit « <1 ms » sous la milliseconde.
                 hop.sent += 1;
                 hop.add_sample(ms);
             }
@@ -203,7 +204,7 @@ impl Tracer {
             };
             state.lock().unwrap().target_ip = Some(ip);
 
-            let use_mtr = which("mtr").is_some();
+            let use_mtr = !cfg!(windows) && which("mtr").is_some();
             let mut cmd = if use_mtr {
                 let mut c = Command::new("mtr");
                 c.args(["--raw", "-n", "-i", "1", "-c", "100000", "-m", "40"]);
@@ -221,6 +222,11 @@ impl Tracer {
                 }
                 c.arg(ip.to_string());
                 c
+            } else if cfg!(windows) {
+                let mut c = Command::new("tracert");
+                c.args(["-d", "-w", "2000", "-h", "40"]);
+                c.arg(ip.to_string());
+                c
             } else {
                 let mut c = Command::new("traceroute");
                 c.args(["-n", "-q", "3", "-w", "2", "-m", "40"]);
@@ -231,21 +237,31 @@ impl Tracer {
                 c
             };
             cmd.stdin(Stdio::null()).stdout(Stdio::piped()).stderr(Stdio::piped()).env("LC_ALL", "C");
+            crate::util::no_console_window(&mut cmd);
             let mut child = match cmd.spawn() {
                 Ok(c) => c,
                 Err(e) => {
                     let mut st = state.lock().unwrap();
                     st.running = false;
-                    st.error = Some(format!("Ni mtr ni traceroute n'ont pu démarrer : {e}"));
+                    st.error = Some(if cfg!(windows) { format!("tracert n'a pas pu démarrer : {e}") } else { format!("Ni mtr ni traceroute n'ont pu démarrer : {e}") });
                     return;
                 }
             };
             let stdout = child.stdout.take().unwrap();
             let stderr = child.stderr.take();
-            state.lock().unwrap().source = if use_mtr { "mtr" } else { "traceroute" };
+            state.lock().unwrap().source = if use_mtr {
+                "mtr"
+            } else if cfg!(windows) {
+                "tracert"
+            } else {
+                "traceroute"
+            };
             *child_slot.lock().unwrap() = Some(child);
-            for line in BufReader::new(stdout).lines() {
+            // Par octets : la console de Windows n'écrit pas en UTF-8, et une ligne illisible
+            // comme « Détermination de l'itinéraire » ne doit pas arrêter la lecture.
+            for line in BufReader::new(stdout).split(b'\n') {
                 let Ok(line) = line else { break };
+                let line = String::from_utf8_lossy(&line);
                 if *run_id.lock().unwrap() != id {
                     return;
                 }

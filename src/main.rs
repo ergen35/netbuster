@@ -1,5 +1,8 @@
 //! NetBuster : surveillance et gestion du réseau du PC, en temps réel.
 
+// Sous Windows, pas de console noire derrière la fenêtre.
+#![cfg_attr(windows, windows_subsystem = "windows")]
+
 use eframe::egui;
 use netbuster::collect::{Ctl, Shared};
 use netbuster::ui::{App, Page, ScreenshotJob};
@@ -14,11 +17,17 @@ fn main() {
     let args: Vec<String> = std::env::args().skip(1).collect();
     let value_of = |name: &str| args.iter().position(|a| a == name).and_then(|i| args.get(i + 1)).cloned();
 
-    if args.iter().any(|a| a == "--helper") {
-        std::process::exit(netbuster::helper::run_helper(value_of("--mock").map(PathBuf::from)));
+    #[cfg(target_os = "linux")]
+    {
+        if args.iter().any(|a| a == "--helper") {
+            std::process::exit(netbuster::helper::run_helper(value_of("--mock").map(PathBuf::from)));
+        }
+        if args.iter().any(|a| a == "--daemon") {
+            std::process::exit(netbuster::service::run_daemon(value_of("--mock").map(PathBuf::from)));
+        }
     }
-    if args.iter().any(|a| a == "--daemon") {
-        std::process::exit(netbuster::service::run_daemon(value_of("--mock").map(PathBuf::from)));
+    if args.iter().any(|a| a == "--preview-limited") {
+        netbuster::platform::preview_limited();
     }
 
     let screenshot = value_of("--screenshot").map(|p| ScreenshotJob { path: PathBuf::from(p), requested: false });

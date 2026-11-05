@@ -1,4 +1,5 @@
 //! Clique dans la vraie interface, avec un assistant simulé : aucune commande n'atteint le système.
+#![cfg(target_os = "linux")]
 
 use egui_kittest::kittest::Queryable;
 use egui_kittest::Harness;

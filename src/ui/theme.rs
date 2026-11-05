@@ -184,6 +184,8 @@ pub fn install_fonts(ctx: &egui::Context) {
             "/usr/share/fonts/google-noto/NotoSans-Regular.ttf",
             "/usr/share/fonts/truetype/ubuntu/Ubuntu-R.ttf",
             "/usr/share/fonts/truetype/dejavu/DejaVuSans.ttf",
+            "C:\\Windows\\Fonts\\segoeui.ttf",
+            "/System/Library/Fonts/Supplemental/Arial.ttf",
         ],
         Some(FontFamily::Proportional),
     );
@@ -195,6 +197,8 @@ pub fn install_fonts(ctx: &egui::Context) {
             "/usr/share/fonts/google-noto/NotoSans-Bold.ttf",
             "/usr/share/fonts/truetype/ubuntu/Ubuntu-B.ttf",
             "/usr/share/fonts/truetype/dejavu/DejaVuSans-Bold.ttf",
+            "C:\\Windows\\Fonts\\segoeuib.ttf",
+            "/System/Library/Fonts/Supplemental/Arial Bold.ttf",
         ],
         None,
     );
@@ -204,11 +208,22 @@ pub fn install_fonts(ctx: &egui::Context) {
             "/usr/share/fonts/truetype/noto/NotoSansMono-Regular.ttf",
             "/usr/share/fonts/noto/NotoSansMono-Regular.ttf",
             "/usr/share/fonts/truetype/dejavu/DejaVuSansMono.ttf",
+            "C:\\Windows\\Fonts\\consola.ttf",
+            "/System/Library/Fonts/Supplemental/Courier New.ttf",
         ],
         Some(FontFamily::Monospace),
     );
     // Dernier recours pour les symboles absents des autres polices.
-    add("fallback", &["/usr/share/fonts/truetype/dejavu/DejaVuSans.ttf", "/usr/share/fonts/dejavu/DejaVuSans.ttf"], None);
+    add(
+        "fallback",
+        &[
+            "/usr/share/fonts/truetype/dejavu/DejaVuSans.ttf",
+            "/usr/share/fonts/dejavu/DejaVuSans.ttf",
+            "C:\\Windows\\Fonts\\seguisym.ttf",
+            "/System/Library/Fonts/Supplemental/Arial Unicode.ttf",
+        ],
+        None,
+    );
     if f.font_data.contains_key("fallback") {
         for fam in [FontFamily::Proportional, FontFamily::Monospace] {
             f.families.entry(fam).or_default().push("fallback".to_string());

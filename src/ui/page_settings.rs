@@ -98,9 +98,25 @@ pub fn settings(app: &mut App, ui: &mut Ui) {
         ui.add_space(10.0);
         startup_card(app, ui);
         ui.add_space(10.0);
-        service_card(app, ui);
-        ui.add_space(10.0);
-        history_card(app, ui);
+        if crate::platform::full_features() {
+            service_card(app, ui);
+            ui.add_space(10.0);
+            history_card(app, ui);
+        } else {
+            system_card(ui);
+        }
+    });
+}
+
+/// Dit franchement ce que cette version fait et ne fait pas encore sur ce système.
+fn system_card(ui: &mut Ui) {
+    card(ui, |ui| {
+        ui.set_width(ui.available_width());
+        section_title(ui, &format!("NetBuster sous {}", crate::platform::system_name()));
+        ui.add_space(6.0);
+        hint(ui, "Disponible : débits de chaque interface, consommation, connexions et ports ouverts avec leur programme, traceroute, identification des adresses IP.");
+        ui.add_space(4.0);
+        hint(ui, "Pas encore disponible : capture des paquets, volume par programme, pare-feu, configuration réseau, SSH, icône dans la barre d'état et capture en arrière-plan. Ces fonctions existent sous Linux.");
     });
 }
 
@@ -138,22 +154,26 @@ fn startup_card(app: &mut App, ui: &mut Ui) {
                 app.notify(false, "Ouverture de session", e.to_string());
             }
         }
-        let mut changed = toggle_row(
-            ui,
-            &mut app.settings.settings.close_to_tray,
-            "Continuer en arrière-plan quand la fenêtre se ferme",
-            if tray {
-                "La mesure et la capture continuent. Pour tout arrêter, utilisez « Quitter NetBuster » dans le menu de l'icône."
-            } else {
-                "Ce bureau n'a pas de barre d'état : fermer la fenêtre quitte NetBuster."
-            },
-        );
-        changed |= toggle_row(
-            ui,
-            &mut app.settings.settings.capture_on_open,
-            "Capturer les paquets dès l'ouverture de NetBuster",
-            "Le système demandera votre mot de passe à chaque ouverture. Le service ci-dessous évite cette demande.",
-        );
+        // Sans barre d'état ni capture, ces deux réglages ne feraient rien.
+        let mut changed = false;
+        if crate::platform::full_features() {
+            changed = toggle_row(
+                ui,
+                &mut app.settings.settings.close_to_tray,
+                "Continuer en arrière-plan quand la fenêtre se ferme",
+                if tray {
+                    "La mesure et la capture continuent. Pour tout arrêter, utilisez « Quitter NetBuster » dans le menu de l'icône."
+                } else {
+                    "Ce bureau n'a pas de barre d'état : fermer la fenêtre quitte NetBuster."
+                },
+            );
+            changed |= toggle_row(
+                ui,
+                &mut app.settings.settings.capture_on_open,
+                "Capturer les paquets dès l'ouverture de NetBuster",
+                "Le système demandera votre mot de passe à chaque ouverture. Le service ci-dessous évite cette demande.",
+            );
+        }
         if changed {
             if let Err(e) = app.settings.settings.save() {
                 app.notify(false, "Réglages", e.to_string());

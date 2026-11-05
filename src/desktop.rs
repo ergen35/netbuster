@@ -111,16 +111,69 @@ pub fn install_launcher_in(data_home: &Path, exe: &str) -> std::io::Result<()> {
     write_if_changed(&data_home.join(format!("applications/{APP_ID}.desktop")), desktop_entry(exe, "", false).as_bytes())
 }
 
+/// Un paquet `.deb` pose lui-même lanceur et icône dans `/usr/share`.
+pub fn installed_by_package(exe: &str) -> bool {
+    exe.starts_with("/usr/") && !exe.starts_with("/usr/local/")
+}
+
+/// Le lanceur du programme, là où le système en a besoin : le paquet de Windows ou de macOS s'en occupe.
 pub fn install_launcher() -> std::io::Result<()> {
-    install_launcher_in(&data_home(), &current_exe()?)
+    if !cfg!(target_os = "linux") {
+        return Ok(());
+    }
+    install_launcher_for(&data_home(), &current_exe()?)
+}
+
+pub fn install_launcher_for(data_home: &Path, exe: &str) -> std::io::Result<()> {
+    if !installed_by_package(exe) {
+        return install_launcher_in(data_home, exe);
+    }
+    // Un lanceur laissé par une ancienne copie du programme cacherait celui du paquet.
+    match std::fs::remove_file(data_home.join(format!("applications/{APP_ID}.desktop"))) {
+        Err(e) if e.kind() != std::io::ErrorKind::NotFound => Err(e),
+        _ => Ok(()),
+    }
+}
+
+const WINDOWS_RUN_KEY: &str = "HKCU\\Software\\Microsoft\\Windows\\CurrentVersion\\Run";
+
+/// Le fichier qui demande à macOS de lancer NetBuster à l'ouverture de session.
+pub fn launch_agent(exe: &str) -> String {
+    let exe = exe.replace('&', "&amp;").replace('<', "&lt;").replace('>', "&gt;");
+    format!(
+        "<?xml version=\"1.0\" encoding=\"UTF-8\"?>
+<!DOCTYPE plist PUBLIC \"-//Apple//DTD PLIST 1.0//EN\" \"http://www.apple.com/DTDs/PropertyList-1.0.dtd\">
+<plist version=\"1.0\">
+<dict>
+  <key>Label</key>
+  <string>com.github.ergen35.netbuster</string>
+  <key>ProgramArguments</key>
+  <array>
+    <string>{exe}</string>
+    <string>--minimized</string>
+  </array>
+  <key>RunAtLoad</key>
+  <true/>
+</dict>
+</plist>
+"
+    )
 }
 
 pub fn autostart_path() -> PathBuf {
-    config_home().join(format!("autostart/{APP_ID}.desktop"))
+    if cfg!(target_os = "macos") {
+        home_dir().join("Library/LaunchAgents/com.github.ergen35.netbuster.plist")
+    } else {
+        config_home().join(format!("autostart/{APP_ID}.desktop"))
+    }
 }
 
 pub fn autostart_enabled() -> bool {
-    autostart_path().exists()
+    if cfg!(windows) {
+        crate::util::run("reg", &["query", WINDOWS_RUN_KEY, "/v", "NetBuster"]).ok
+    } else {
+        autostart_path().exists()
+    }
 }
 
 pub fn set_autostart_at(path: &Path, exe: &str, enabled: bool) -> std::io::Result<()> {
@@ -135,7 +188,30 @@ pub fn set_autostart_at(path: &Path, exe: &str, enabled: bool) -> std::io::Resul
 }
 
 pub fn set_autostart(enabled: bool) -> std::io::Result<()> {
-    set_autostart_at(&autostart_path(), &current_exe()?, enabled)
+    let exe = current_exe()?;
+    if cfg!(windows) {
+        let value = format!("\"{exe}\" --minimized");
+        let r = if enabled {
+            crate::util::run("reg", &["add", WINDOWS_RUN_KEY, "/v", "NetBuster", "/t", "REG_SZ", "/f", "/d", &value])
+        } else if autostart_enabled() {
+            crate::util::run("reg", &["delete", WINDOWS_RUN_KEY, "/v", "NetBuster", "/f"])
+        } else {
+            return Ok(());
+        };
+        return if r.ok { Ok(()) } else { Err(std::io::Error::other(r.stderr.trim().to_string())) };
+    }
+    if cfg!(target_os = "macos") {
+        let path = autostart_path();
+        return if enabled {
+            write_if_changed(&path, launch_agent(&exe).as_bytes())
+        } else {
+            match std::fs::remove_file(path) {
+                Err(e) if e.kind() != std::io::ErrorKind::NotFound => Err(e),
+                _ => Ok(()),
+            }
+        };
+    }
+    set_autostart_at(&autostart_path(), &exe, enabled)
 }
 
 /// Le programme a pu changer de dossier depuis l'activation : l'ouverture de session doit le retrouver.
@@ -237,6 +313,30 @@ mod tests {
         assert!(!p.exists());
         // Déjà désactivé : pas une erreur.
         set_autostart_at(&p, "/x", false).unwrap();
+    }
+
+    #[test]
+    fn a_packaged_copy_leaves_the_launcher_to_its_package() {
+        assert!(installed_by_package("/usr/bin/netbuster"));
+        assert!(!installed_by_package("/usr/local/bin/netbuster"));
+        assert!(!installed_by_package("/home/a/netbuster"));
+        let d = tmp("packaged");
+        // Une ancienne copie avait posé son lanceur : il cacherait celui du paquet.
+        install_launcher_for(&d, "/home/a/netbuster").unwrap();
+        let entry = d.join("applications/netbuster.desktop");
+        assert!(entry.exists());
+        install_launcher_for(&d, "/usr/bin/netbuster").unwrap();
+        assert!(!entry.exists());
+        // Rien à retirer : pas une erreur.
+        install_launcher_for(&d, "/usr/bin/netbuster").unwrap();
+    }
+
+    #[test]
+    fn the_mac_login_item_opens_reduced_and_escapes_its_path() {
+        let text = launch_agent("/Applications/A&B <x>/netbuster");
+        assert!(text.contains("<string>/Applications/A&amp;B &lt;x&gt;/netbuster</string>"), "{text}");
+        assert!(text.contains("<string>--minimized</string>"));
+        assert!(text.contains("<key>RunAtLoad</key>"));
     }
 
     #[test]

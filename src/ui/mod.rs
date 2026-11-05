@@ -44,6 +44,11 @@ impl Page {
     pub const ALL: [Page; 12] =
         [Page::Overview, Page::Apps, Page::Conns, Page::Ports, Page::Packets, Page::Trace, Page::Ip, Page::Usage, Page::Firewall, Page::Config, Page::Ssh, Page::Settings];
 
+    /// Les écrans qui reposent sur la capture de paquets ou les outils de Linux n'existent pas ailleurs.
+    pub fn available(self) -> bool {
+        crate::platform::full_features() || !matches!(self, Page::Packets | Page::Firewall | Page::Config | Page::Ssh)
+    }
+
     pub fn slug(self) -> &'static str {
         match self {
             Page::Overview => "overview",
@@ -95,6 +100,7 @@ impl Page {
             Page::Firewall => "Politiques, règles UFW, IP Tables et nftables",
             Page::Config => "Interfaces, adresses, routes, DNS et connexions",
             Page::Ssh => "Serveur, sessions, clés et tentatives de connexion",
+            Page::Settings if !crate::platform::full_features() => "Apparence et démarrage de NetBuster",
             Page::Settings => "Démarrage de NetBuster et capture en arrière-plan",
         }
     }
@@ -513,6 +519,9 @@ impl App {
             *self.shared.repaint.lock().unwrap() = Some(ctx.clone());
         }
         self.frame += 1;
+        if !self.page.available() {
+            self.page = Page::Overview;
+        }
         if std::mem::take(&mut self.minimize_on_open) {
             ctx.send_viewport_cmd(egui::ViewportCommand::Minimized(true));
         }
@@ -651,7 +660,9 @@ impl App {
             self.nav_item(ui, Page::Settings);
             self.about_row(ui);
             ui.add_space(6.0);
-            self.admin_card(ui);
+            if crate::platform::full_features() {
+                self.admin_card(ui);
+            }
         });
         // Marque : un écran de contrôle barré d'un signal.
         ui.horizontal(|ui| {
@@ -693,11 +704,15 @@ impl App {
             }
             group(ui, "ANALYSER");
             for p in [Page::Packets, Page::Trace, Page::Ip, Page::Usage] {
-                self.nav_item(ui, p);
+                if p.available() {
+                    self.nav_item(ui, p);
+                }
             }
-            group(ui, "GÉRER");
-            for p in [Page::Firewall, Page::Config, Page::Ssh] {
-                self.nav_item(ui, p);
+            if Page::Firewall.available() {
+                group(ui, "GÉRER");
+                for p in [Page::Firewall, Page::Config, Page::Ssh] {
+                    self.nav_item(ui, p);
+                }
             }
         });
     }

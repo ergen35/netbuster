@@ -82,7 +82,10 @@ impl CmdResult {
 
 /// Lance un programme tel quel, sans shell, en anglais pour que la sortie soit lisible par la machine.
 pub fn run(prog: &str, args: &[&str]) -> CmdResult {
-    let out = Command::new(prog).args(args).env("LC_ALL", "C").stdin(Stdio::null()).output();
+    let mut cmd = Command::new(prog);
+    cmd.args(args).env("LC_ALL", "C").stdin(Stdio::null());
+    no_console_window(&mut cmd);
+    let out = cmd.output();
     match out {
         Ok(o) => CmdResult {
             ok: o.status.success(),
@@ -94,21 +97,57 @@ pub fn run(prog: &str, args: &[&str]) -> CmdResult {
     }
 }
 
+/// Sous Windows, chaque commande ouvrirait sinon une console noire devant la fenêtre.
+pub fn no_console_window(_cmd: &mut Command) {
+    #[cfg(windows)]
+    {
+        use std::os::windows::process::CommandExt;
+        const CREATE_NO_WINDOW: u32 = 0x0800_0000;
+        _cmd.creation_flags(CREATE_NO_WINDOW);
+    }
+}
+
 pub fn which(prog: &str) -> Option<std::path::PathBuf> {
     let path = std::env::var_os("PATH").unwrap_or_default();
+    let name = if cfg!(windows) { format!("{prog}.exe") } else { prog.to_string() };
     std::env::split_paths(&path)
         .chain(["/usr/sbin", "/usr/bin", "/sbin", "/bin"].map(std::path::PathBuf::from))
-        .map(|d| d.join(prog))
+        .map(|d| d.join(&name))
         .find(|p| p.is_file())
 }
 
 pub fn home_dir() -> std::path::PathBuf {
-    std::env::var_os("HOME").map(Into::into).unwrap_or_else(|| "/tmp".into())
+    let var = if cfg!(windows) { "USERPROFILE" } else { "HOME" };
+    std::env::var_os(var).map(Into::into).unwrap_or_else(std::env::temp_dir)
 }
 
 pub fn data_dir() -> std::path::PathBuf {
-    let base = std::env::var_os("XDG_DATA_HOME").map(std::path::PathBuf::from).unwrap_or_else(|| home_dir().join(".local/share"));
-    base.join("netbuster")
+    if cfg!(windows) {
+        let base = std::env::var_os("LOCALAPPDATA").map(std::path::PathBuf::from).unwrap_or_else(|| home_dir().join("AppData").join("Local"));
+        base.join("NetBuster")
+    } else if cfg!(target_os = "macos") {
+        home_dir().join("Library/Application Support/NetBuster")
+    } else {
+        let base = std::env::var_os("XDG_DATA_HOME").map(std::path::PathBuf::from).unwrap_or_else(|| home_dir().join(".local/share"));
+        base.join("netbuster")
+    }
+}
+
+/// Pour écrire un fichier que seule la personne peut lire, là où le système le permet :
+/// sous Windows, le dossier du compte est déjà privé.
+pub fn private_file_options() -> std::fs::OpenOptions {
+    #[allow(unused_mut)]
+    let mut options = std::fs::OpenOptions::new();
+    #[cfg(unix)]
+    {
+        use std::os::unix::fs::OpenOptionsExt;
+        options.mode(0o600);
+    }
+    options
+}
+
+pub fn now_us() -> u64 {
+    std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).map(|d| d.as_micros() as u64).unwrap_or(0)
 }
 
 const B64: &[u8; 64] = b"ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/";

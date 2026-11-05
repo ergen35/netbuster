@@ -4,7 +4,6 @@ use crate::proto::*;
 use crate::util::{run, CmdResult};
 use std::collections::HashMap;
 use std::io::{BufReader, Write};
-use std::os::fd::AsRawFd;
 use std::process::{Child, ChildStdin, Command, Stdio};
 use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::mpsc::{channel, Sender};
@@ -92,7 +91,11 @@ impl Admin {
         let stdout = child.stdout.take().unwrap();
         let mut stderr = child.stderr.take().unwrap();
         // Un tuyau plus large absorbe mieux les pics de trafic.
-        unsafe { libc::fcntl(stdout.as_raw_fd(), libc::F_SETPIPE_SZ, 1024 * 1024) };
+        #[cfg(target_os = "linux")]
+        unsafe {
+            use std::os::fd::AsRawFd;
+            libc::fcntl(stdout.as_raw_fd(), libc::F_SETPIPE_SZ, 1024 * 1024);
+        }
         *self.stdin.lock().unwrap() = child.stdin.take();
         *self.child.lock().unwrap() = Some(child);
         let err_thread = std::thread::spawn(move || {

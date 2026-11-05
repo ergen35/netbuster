@@ -203,12 +203,7 @@ fn encode_query(id: u16, name: &str, qtype: u16) -> Vec<u8> {
 }
 
 fn resolvers() -> Vec<IpAddr> {
-    let text = std::fs::read_to_string("/etc/resolv.conf").unwrap_or_default();
-    let mut out: Vec<IpAddr> = text
-        .lines()
-        .filter_map(|l| l.trim().strip_prefix("nameserver"))
-        .filter_map(|s| s.trim().parse().ok())
-        .collect();
+    let mut out = crate::platform::dns_servers();
     if out.is_empty() {
         out.push(IpAddr::V4(Ipv4Addr::new(127, 0, 0, 53)));
     }
@@ -282,18 +277,52 @@ fn lookup_as(ip: IpAddr) -> Option<AsInfo> {
     Some(info)
 }
 
+/// Sous Windows, la bibliothèque réseau doit être prête : la bibliothèque standard s'en charge
+/// à l'ouverture de sa première prise.
+#[cfg(windows)]
+pub fn reverse_dns(ip: IpAddr) -> Option<String> {
+    use windows_sys::Win32::Networking::WinSock as ws;
+    let _ = UdpSocket::bind("127.0.0.1:0");
+    let mut host = [0u8; 1025];
+    let rc = unsafe {
+        match ip {
+            IpAddr::V4(a) => {
+                let mut raw: ws::SOCKADDR_IN = std::mem::zeroed();
+                raw.sin_family = ws::AF_INET;
+                raw.sin_addr.S_un.S_addr = u32::from_ne_bytes(a.octets());
+                ws::getnameinfo(&raw as *const _ as *const ws::SOCKADDR, std::mem::size_of_val(&raw) as i32, host.as_mut_ptr(), host.len() as u32, std::ptr::null_mut(), 0, ws::NI_NAMEREQD as i32)
+            }
+            IpAddr::V6(a) => {
+                let mut raw: ws::SOCKADDR_IN6 = std::mem::zeroed();
+                raw.sin6_family = ws::AF_INET6;
+                raw.sin6_addr.u.Byte = a.octets();
+                ws::getnameinfo(&raw as *const _ as *const ws::SOCKADDR, std::mem::size_of_val(&raw) as i32, host.as_mut_ptr(), host.len() as u32, std::ptr::null_mut(), 0, ws::NI_NAMEREQD as i32)
+            }
+        }
+    };
+    if rc != 0 {
+        return None;
+    }
+    let end = host.iter().position(|c| *c == 0)?;
+    let s = String::from_utf8_lossy(&host[..end]).into_owned();
+    (!s.is_empty()).then_some(s)
+}
+
+#[cfg(unix)]
 pub fn reverse_dns(ip: IpAddr) -> Option<String> {
     let sa = SocketAddr::new(ip, 0);
     let mut host = [0 as libc::c_char; 1025];
     let rc = unsafe {
         match sa {
             SocketAddr::V4(a) => {
-                let raw = libc::sockaddr_in {
-                    sin_family: libc::AF_INET as u16,
-                    sin_port: 0,
-                    sin_addr: libc::in_addr { s_addr: u32::from_ne_bytes(a.ip().octets()) },
-                    sin_zero: [0; 8],
-                };
+                // Les champs diffèrent selon le système : partir de zéros les couvre tous.
+                let mut raw: libc::sockaddr_in = std::mem::zeroed();
+                raw.sin_family = libc::AF_INET as libc::sa_family_t;
+                raw.sin_addr = libc::in_addr { s_addr: u32::from_ne_bytes(a.ip().octets()) };
+                #[cfg(target_os = "macos")]
+                {
+                    raw.sin_len = std::mem::size_of_val(&raw) as u8;
+                }
                 libc::getnameinfo(
                     &raw as *const _ as *const libc::sockaddr,
                     std::mem::size_of_val(&raw) as u32,
@@ -305,13 +334,13 @@ pub fn reverse_dns(ip: IpAddr) -> Option<String> {
                 )
             }
             SocketAddr::V6(a) => {
-                let raw = libc::sockaddr_in6 {
-                    sin6_family: libc::AF_INET6 as u16,
-                    sin6_port: 0,
-                    sin6_flowinfo: 0,
-                    sin6_addr: libc::in6_addr { s6_addr: a.ip().octets() },
-                    sin6_scope_id: 0,
-                };
+                let mut raw: libc::sockaddr_in6 = std::mem::zeroed();
+                raw.sin6_family = libc::AF_INET6 as libc::sa_family_t;
+                raw.sin6_addr = libc::in6_addr { s6_addr: a.ip().octets() };
+                #[cfg(target_os = "macos")]
+                {
+                    raw.sin6_len = std::mem::size_of_val(&raw) as u8;
+                }
                 libc::getnameinfo(
                     &raw as *const _ as *const libc::sockaddr,
                     std::mem::size_of_val(&raw) as u32,

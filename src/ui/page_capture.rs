@@ -24,10 +24,9 @@ fn keylog_path() -> std::path::PathBuf {
 
 /// Crée le fichier de clés, lisible par la personne seule, et commence à le surveiller.
 pub fn enable_decryption(m: &mut Model) -> Result<(), String> {
-    use std::os::unix::fs::OpenOptionsExt;
     let path = keylog_path();
     std::fs::create_dir_all(netbuster_home()).map_err(|e| e.to_string())?;
-    std::fs::OpenOptions::new().create(true).append(true).mode(0o600).open(&path).map_err(|e| e.to_string())?;
+    crate::util::private_file_options().create(true).append(true).open(&path).map_err(|e| e.to_string())?;
     m.keylog.path = Some(path);
     Ok(())
 }

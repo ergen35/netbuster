@@ -4,11 +4,11 @@ use crate::admin::{Admin, AdminState, Incoming};
 use crate::enrich::Enricher;
 use crate::manage::{self, ActionResult, FirewallData, NetConfigData, SshData};
 use crate::model::{IfKind, Iface, Model, Sample, Usage, HISTORY_CAP};
-use crate::proto::{read_frame, Cmd, Event, RawFrame, ServiceStats, TAG_EVENT, TAG_PACKET};
+#[cfg(target_os = "linux")]
+use crate::proto::{read_frame, TAG_EVENT, TAG_PACKET};
+use crate::proto::{Cmd, Event, RawFrame, ServiceStats};
 use crate::service::ServicePaths;
-use crate::ss::{self, SS_ARGS};
 use crate::trace::Tracer;
-use crate::util::run;
 use std::collections::HashMap;
 use std::net::IpAddr;
 use std::path::Path;
@@ -126,8 +126,11 @@ impl Shared {
         std::thread::spawn(move || ingest_loop(s, rx));
         let s = shared.clone();
         std::thread::spawn(move || panels_loop(s));
-        let s = shared.clone();
-        std::thread::spawn(move || service_client_loop(s));
+        #[cfg(target_os = "linux")]
+        {
+            let s = shared.clone();
+            std::thread::spawn(move || service_client_loop(s));
+        }
         shared
     }
 
@@ -379,21 +382,18 @@ fn apply_addresses(m: &mut Model, map: HashMap<String, Vec<(IpAddr, u8)>>) {
 }
 
 fn sampler_loop(s: Arc<Shared>) {
-    let root = Path::new("/sys/class/net");
+    let mut collector = crate::platform::Collector::default();
     let mut last_if = Instant::now();
     let mut last_flows = Instant::now();
     let mut last_addr: Option<Instant> = None;
     let mut last_save = Instant::now();
     let mut first_ss = true;
     loop {
-        let snaps = read_interfaces(root);
-        let addr_map = if last_addr.is_none_or(|t| t.elapsed() >= Duration::from_secs(3)) {
+        let want_addrs = last_addr.is_none_or(|t| t.elapsed() >= Duration::from_secs(3));
+        if want_addrs {
             last_addr = Some(Instant::now());
-            let r = run("ip", &["-j", "addr"]);
-            r.ok.then(|| parse_ip_addr_json(&r.stdout))
-        } else {
-            None
-        };
+        }
+        let (snaps, addr_map) = collector.interfaces(want_addrs);
         let dt = last_if.elapsed().as_secs_f64().max(0.05);
         last_if = Instant::now();
         let day = crate::model::today();
@@ -406,9 +406,8 @@ fn sampler_loop(s: Arc<Shared>) {
         }
 
         if first_ss || last_flows.elapsed() >= Duration::from_millis(950) {
-            // `ss` hors verrou : quelques millisecondes qui ne doivent pas figer l'affichage.
-            let res = s.admin.exec_best("ss", SS_ARGS);
-            let entries = ss::parse_output(&res.stdout);
+            // Hors verrou : un relevé qui ne doit pas figer l'affichage.
+            let entries = collector.sockets(&s.admin);
             let dt = last_flows.elapsed().as_secs_f64().max(0.05);
             last_flows = Instant::now();
             let want: Vec<IpAddr> = {
@@ -435,7 +434,7 @@ fn sampler_loop(s: Arc<Shared>) {
             usage.save();
         }
         s.request_repaint();
-        std::thread::sleep(Duration::from_millis(500));
+        std::thread::sleep(crate::platform::SAMPLE_EVERY);
     }
 }
 
@@ -444,6 +443,14 @@ fn refresh_proc_infos(m: &mut Model) {
     m.procs.retain(|p, _| pids.contains(p));
     for pid in pids {
         if m.procs.contains_key(&pid) {
+            continue;
+        }
+        if !cfg!(target_os = "linux") {
+            // Pas de `/proc` ici : le nom vient du relevé des connexions.
+            let flow = m.flows.values().find(|f| f.pid == Some(pid));
+            let Some((name, uid)) = flow.and_then(|f| Some((f.proc_name.clone()?, f.uid))) else { continue };
+            let user = uid.map(|u| m.uid_names.get(&u).cloned().unwrap_or_else(|| u.to_string())).unwrap_or_default();
+            m.procs.insert(pid, crate::model::ProcInfo { pid, name, cmdline: String::new(), user });
             continue;
         }
         let dir = format!("/proc/{pid}");
@@ -468,6 +475,7 @@ enum Parsed {
 }
 
 /// Reste relié au service de capture tant qu'il tourne, et se reconnecte s'il redémarre.
+#[cfg(target_os = "linux")]
 fn service_client_loop(s: Arc<Shared>) {
     let socket = s.service_paths.socket();
     loop {
@@ -570,7 +578,7 @@ fn ingest_loop(s: Arc<Shared>, rx: Receiver<Incoming>) {
                     m.capture.service = true;
                     m.capture.running = true;
                     m.capture.error = None;
-                    m.capture.service_live_since_us = crate::helper::now_us();
+                    m.capture.service_live_since_us = crate::util::now_us();
                 }
                 Event::ServiceDown => {
                     m.capture.service = false;
@@ -640,6 +648,7 @@ fn panels_loop(s: Arc<Shared>) {
 mod tests {
     use super::*;
 
+    #[cfg(target_os = "linux")]
     #[test]
     fn this_machine_interfaces_are_readable() {
         let list = read_interfaces(Path::new("/sys/class/net"));

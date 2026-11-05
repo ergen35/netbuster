@@ -6,6 +6,7 @@ rust-version = "1.95"
 description = "NetBuster : surveillance et gestion du réseau du PC, en temps réel"
 authors = ["Serge Eric Hotegni"]
 repository = "https://github.com/ergen35/netbuster"
+build = "build.rs"
 
 [lib]
 name = "netbuster"
@@ -16,17 +17,25 @@ name = "netbuster"
 path = "src/main.rs"
 
 [dependencies]
-eframe = { version = "0.37", default-features = false, features = ["default_fonts", "glow", "wayland", "x11"] }
+eframe = { version = "0.37", default-features = false, features = ["default_fonts", "glow"] }
 egui_extras = { version = "0.37", default-features = false }
 egui-pop-phosphor = { version = "0.15", default-features = false, features = ["regular"] }
 image = { version = "0.25", default-features = false, features = ["png"] }
 serde = { version = "1", features = ["derive"] }
 serde_json = "1"
-libc = "0.2"
 ureq = { version = "3", default-features = false, features = ["rustls", "json"] }
 ring = "0.17"
 chrono = { version = "0.4", default-features = false, features = ["clock"] }
+
+[target.'cfg(target_os = "linux")'.dependencies]
+eframe = { version = "0.37", default-features = false, features = ["wayland", "x11"] }
 ksni = { version = "0.3.7", default-features = false, features = ["async-io", "blocking"] }
+
+[target.'cfg(unix)'.dependencies]
+libc = "0.2"
+
+[target.'cfg(windows)'.dependencies]
+windows-sys = { version = "0.61", features = ["Win32_Networking_WinSock"] }
 
 [dev-dependencies]
 egui_kittest = { version = "0.37", features = ["eframe"] }
